@@ -1,19 +1,87 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { C, SANS, SERIF } from "./constants";
 import { dayLabel } from "../lib/dates";
 import type { WebData, WebNode } from "./model";
 
 const WC = 600;
 const RING_L = ["now", "next", "~1 month", "~3 months", "~6 months"];
+const VB = { x: -80, y: -80, w: 1360, h: 1360 };
+const MIN_SCALE = 0.08;
+const MAX_SCALE = 4;
+
+type Cam = { scale: number; x: number; y: number; fit: boolean };
 
 export function SkillWeb({ web }: { web: WebData | null }) {
-  const [sel, setSel] = useState<string>("");
-  const [br, setBr] = useState<string>("");
-  const [zoom, setZoom] = useState(1);
+  const [sel, setSel] = useState("");
+  const [br, setBr] = useState("");
+  const [cam, setCam] = useState<Cam>({ scale: 0.25, x: 0, y: 0, fit: true });
+  const boxRef = useRef<HTMLDivElement>(null);
+  const camRef = useRef(cam);
+  camRef.current = cam;
+  const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
+  const pinch = useRef<{ dist: number; scale: number; x: number; y: number; mx: number; my: number } | null>(null);
+  const suppress = useRef(false);
+
   const nodes = web?.nodes ?? [];
   const badges = web?.badges ?? [];
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+
+  const fitNow = () => {
+    const el = boxRef.current;
+    if (!el) return;
+    const pad = 12;
+    const scale = Math.min((el.clientWidth - pad) / VB.w, (el.clientHeight - pad) / VB.h);
+    const next = clamp(scale);
+    setCam({
+      scale: next,
+      x: (el.clientWidth - VB.w * next) / 2 - VB.x * next,
+      y: (el.clientHeight - VB.h * next) / 2 - VB.y * next,
+      fit: true,
+    });
+  };
+
+  const zoomAt = (clientX: number, clientY: number, factor: number) => {
+    const el = boxRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    setCam((v) => {
+      const next = clamp(v.scale * factor);
+      const k = next / v.scale;
+      return { scale: next, x: px - (px - v.x) * k, y: py - (py - v.y) * k, fit: false };
+    });
+  };
+
+  useLayoutEffect(() => {
+    fitNow();
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (camRef.current.fit) fitNow();
+    });
+    ro?.observe(el);
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+      zoomAt(e.clientX, e.clientY, factor);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      ro?.disconnect();
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, [web]);
+
   if (!web) return <div className="sub" style={{ textAlign: "center" }}>The skill web hasn't loaded yet.</div>;
+
+  const zoomCenter = (factor: number) => {
+    const el = boxRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
+  };
 
   const colOf = (key: string) => badges.find((b) => b.k === key)?.col || C.teal;
   const inBr = (n: WebNode) => !br || n.br.includes(br);
@@ -26,7 +94,7 @@ export function SkillWeb({ web }: { web: WebData | null }) {
   const sn = sel ? byId.get(sel) : undefined;
   const leads = sn ? nodes.filter((n) => n.pre.includes(sn.id) && !hidden(n.st)) : [];
   const lab = (s: string) => (s.length > 24 ? s.slice(0, 23) + "…" : s);
-  const rings = web.rings.filter((r) => r < (web.RB || 600) + 20);
+  const rings = web.rings.filter((r) => r > 0 && r < (web.RB || 600) + 40);
 
   return (
     <div>
@@ -36,14 +104,78 @@ export function SkillWeb({ web }: { web: WebData | null }) {
           {badges.map((b) => <option key={b.k} value={b.k}>{b.l}</option>)}
         </select>
         <div className="seg" role="group" aria-label="Zoom">
-          <button type="button" onClick={() => setZoom(Math.max(1, zoom - 0.5))} aria-label="Zoom out">−</button>
-          <button type="button" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
-          <button type="button" onClick={() => setZoom(Math.min(3, zoom + 0.5))} aria-label="Zoom in">+</button>
+          <button type="button" onClick={() => zoomCenter(1 / 1.25)} aria-label="Zoom out">−</button>
+          <button type="button" onClick={fitNow} aria-label="Fit to screen">{Math.round(cam.scale * 100)}%</button>
+          <button type="button" onClick={() => zoomCenter(1.25)} aria-label="Zoom in">+</button>
         </div>
+        <button type="button" className="btn sm" onClick={fitNow}>Fit</button>
         <span className="sub"><span style={{ color: C.amberTx }}>●</span> {counts.u} unlocked · <span style={{ color: C.teal }}>○</span> {counts.a} open · ? {counts.g} hidden</span>
       </div>
-      <div className="webbox">
-        <svg viewBox="-70 -70 1340 1340" style={{ width: zoom * 100 + "%", minWidth: zoom * 100 + "%" }} role="group" aria-label="Skill web">
+      <div
+        className="webbox"
+        ref={boxRef}
+        role="application"
+        aria-label="Skill web. Drag to pan. Pinch or hold Ctrl and scroll to zoom."
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          const target = e.target as HTMLElement;
+          if (target.closest("button")) return;
+          drag.current = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false };
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          const dx = e.clientX - d.x;
+          const dy = e.clientY - d.y;
+          if (Math.hypot(dx, dy) > 4) d.moved = true;
+          setCam((v) => ({ ...v, x: d.cx + dx, y: d.cy + dy, fit: false }));
+        }}
+        onPointerUp={() => {
+          if (drag.current?.moved) suppress.current = true;
+          drag.current = null;
+        }}
+        onClickCapture={(e) => {
+          if (!suppress.current) return;
+          suppress.current = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
+        onTouchStart={(e) => {
+          if (e.touches.length !== 2) return;
+          const [a, b] = [e.touches[0], e.touches[1]];
+          const rect = boxRef.current?.getBoundingClientRect();
+          pinch.current = {
+            dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+            scale: cam.scale,
+            x: cam.x,
+            y: cam.y,
+            mx: ((a.clientX + b.clientX) / 2) - (rect?.left || 0),
+            my: ((a.clientY + b.clientY) / 2) - (rect?.top || 0),
+          };
+        }}
+        onTouchMove={(e) => {
+          if (e.touches.length !== 2 || !pinch.current) return;
+          e.preventDefault();
+          const [a, b] = [e.touches[0], e.touches[1]];
+          const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+          const factor = dist / Math.max(1, pinch.current.dist);
+          const next = clamp(pinch.current.scale * factor);
+          const k = next / pinch.current.scale;
+          const px = pinch.current.mx;
+          const py = pinch.current.my;
+          setCam({ scale: next, x: px - (px - pinch.current.x) * k, y: py - (py - pinch.current.y) * k, fit: false });
+        }}
+        onTouchEnd={() => { pinch.current = null; }}
+      >
+        <svg
+          viewBox={`${VB.x} ${VB.y} ${VB.w} ${VB.h}`}
+          width={VB.w}
+          height={VB.h}
+          style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale})`, transformOrigin: "0 0" }}
+          role="group"
+          aria-label="Skill web"
+        >
           {rings.map((r, i) => (
             <g key={r}>
               <circle cx={WC} cy={WC} r={r} fill="none" stroke="#d8cfbd" strokeDasharray="3 7" />
@@ -100,6 +232,7 @@ export function SkillWeb({ web }: { web: WebData | null }) {
           })}
         </svg>
       </div>
+      <div className="note" style={{ textAlign: "center", marginTop: 6 }}>Drag to pan. Pinch, or hold Ctrl and scroll, to zoom. Fit shows the whole web.</div>
       <div className="pn tint" style={{ marginTop: 12, marginBottom: 0 }}>
         {!sn ? <div className="sub" style={{ textAlign: "center" }}>Tap a skill to see what unlocks it. Tap a branch name on the rim (or use the menu) to light up one branch. Gold with a tick means unlocked. White means open to try now. A dashed question mark stays hidden until a neighbour unlocks. A dashed ring is a rehab step to check with your physio first.</div>
           : hidden(sn.st) ? (
@@ -121,4 +254,9 @@ export function SkillWeb({ web }: { web: WebData | null }) {
       </div>
     </div>
   );
+}
+
+function clamp(scale: number): number {
+  if (!Number.isFinite(scale) || scale <= 0) return MIN_SCALE;
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }

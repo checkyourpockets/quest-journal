@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildView } from "./model";
 import { schedule } from "../lib/srs";
-import { addChronicle, gradeRune, toggleHabitToday } from "../data/mutate";
+import { addChronicle, gradeRune, saveSettings, toggleHabitToday } from "../data/mutate";
 import type { DocMap } from "../data/types";
 
 function sample(): DocMap {
@@ -80,6 +80,27 @@ describe("journal view", () => {
     expect(view.ledger.periods).toHaveLength(1);
     expect(view.oracle.text).toContain("Walk");
     expect(view.pins[0].n).toBe("Home");
+    expect(view.settings.shift).toBeNull();
+    expect(view.settings.savingsTargetPct).toBeNull();
+    expect(view.settings.redirectAmountKRW).toBeNull();
+  });
+
+  it("reads a settings document and saves one without filling gaps", () => {
+    const docs = sample();
+    docs.settings = {
+      shift: { start: "09:00", end: "17:00", days: [1, 2, 3, 4, 5] },
+      savingsTargetPct: 15,
+      redirectGift: { amountKRW: 1000 },
+    };
+    const view = buildView(docs, "2026-03-02");
+    expect(view.settings.shift).toEqual({ start: "09:00", end: "17:00", days: [1, 2, 3, 4, 5] });
+    expect(view.settings.savingsTargetPct).toBe(15);
+    expect(view.settings.redirectAmountKRW).toBe(1000);
+    const saved = saveSettings(docs, { savingsTargetPct: 12 });
+    expect(saved.keys).toEqual(["settings"]);
+    expect(saved.event.kind).toBe("settings");
+    expect((saved.docs.settings as { savingsTargetPct: number }).savingsTargetPct).toBe(12);
+    expect((saved.docs.settings as { shift?: unknown }).shift).toBeUndefined();
   });
 
   it("schedules a later due date for a good review", () => {

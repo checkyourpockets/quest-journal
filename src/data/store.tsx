@@ -13,16 +13,17 @@ import {
   gradeRune,
   requestEpisode,
   requestSeries,
+  saveSettings,
   setQuestStatus,
   toggleHabitToday,
   toggleQuestStep,
+  type Mutation,
 } from "./mutate";
 import { emptyQueue, isNetworkError, loadCache, loadQueue, messageOf, saveCache, saveQueue } from "./offline";
-import type { DocMap, EventDraft, OfflineQueue, SavePhase } from "./types";
+import type { DocMap, OfflineQueue, SavePhase } from "./types";
 
 function overlay(docs: DocMap, queue: OfflineQueue): DocMap {
-  if (!queue.docs.collections) return docs;
-  return { ...docs, collections: queue.docs.collections };
+  return { ...docs, ...queue.docs };
 }
 
 export function useJournal() {
@@ -82,24 +83,24 @@ export function useJournal() {
       setDetail("Will sync when you reconnect");
       return;
     }
-    if (!queue.events.length && !queue.docs.collections) return;
+    if (!queue.events.length && Object.keys(queue.docs).length === 0) return;
     setPhase("saving");
     try {
       const docsAtStart = queue.docs;
-      const snapshot = docsAtStart.collections;
-      if (snapshot) {
+      for (const key of Object.keys(docsAtStart)) {
+        const snapshot = docsAtStart[key];
         const row: Record<string, unknown> = {
           owner_email: owner,
-          key: "collections",
+          key,
           data: snapshot,
           updated_at: new Date().toISOString(),
         };
-        if (idsRef.current.collections) row.id = idsRef.current.collections;
+        if (idsRef.current[key]) row.id = idsRef.current[key];
         const { error } = await supabase.from("qj_docs").upsert(row, { onConflict: "owner_email,key" });
         if (error) throw error;
-        if (queue.docs === docsAtStart) {
+        if (queue.docs[key] === snapshot) {
           const rest = { ...queue.docs };
-          delete rest.collections;
+          delete rest[key];
           queue.docs = rest;
         }
       }
@@ -111,7 +112,7 @@ export function useJournal() {
         saveQueue(queue);
       }
       saveQueue(queue);
-      if (!queue.events.length && !queue.docs.collections) {
+      if (!queue.events.length && Object.keys(queue.docs).length === 0) {
         setPhase("saved");
         setDetail("");
       } else {
@@ -136,13 +137,16 @@ export function useJournal() {
     timer.current = window.setTimeout(() => void flushRef.current(), 700);
   }, []);
 
-  const commit = useCallback((result: { docs: DocMap; event: EventDraft }) => {
+  const commit = useCallback((result: Mutation) => {
     const owner = modeRef.current === "fixture" ? "fixture" : emailRef.current;
     docsRef.current = result.docs;
     const queue = queueRef.current;
     queue.email = owner || "fixture";
     queue.events.push(result.event);
-    queue.docs = { ...queue.docs, collections: result.docs.collections };
+    const keys = result.keys?.length ? result.keys : ["collections"];
+    const patch: DocMap = {};
+    for (const key of keys) patch[key] = result.docs[key];
+    queue.docs = { ...queue.docs, ...patch };
     saveQueue(queue);
     if (owner) saveCache(owner, result.docs);
     setDocs(result.docs);
@@ -182,7 +186,7 @@ export function useJournal() {
         setDocs(merged);
         saveCache(owner, merged);
         setLoadError("");
-        if (queueRef.current.events.length || queueRef.current.docs.collections) void flushRef.current();
+        if (queueRef.current.events.length || Object.keys(queueRef.current.docs).length > 0) void flushRef.current();
       } catch (error) {
         if (cancel) return;
         if (!cached) setLoadError(messageOf(error));
@@ -270,6 +274,7 @@ export function useJournal() {
     addReading: (input) => commit(addReading(docsRef.current, input)),
     requestEpisode: () => commit(requestEpisode(docsRef.current)),
     requestSeries: (input) => commit(requestSeries(docsRef.current, input)),
+    saveSettings: (settings) => commit(saveSettings(docsRef.current, settings)),
     signOut: () => void signOut(),
   }), [phase, detail, email, mode, commit, signOut]);
 

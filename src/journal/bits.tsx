@@ -110,7 +110,7 @@ export function Radar({ aspects }: { aspects: CharView["aspects"] }) {
 
 const SANS = "'Source Sans 3', sans-serif";
 
-export function PeriodBars({ periods, target }: { periods: Period[]; target: number }) {
+export function PeriodBars({ periods, target }: { periods: Period[]; target: number | null }) {
   if (!periods.length) return null;
   const hi = Math.max(1, ...periods.map((m) => Math.max(m.inc, m.out)));
   const W = 680, H = 150, bw = W / periods.length;
@@ -126,7 +126,7 @@ export function PeriodBars({ periods, target }: { periods: Period[]; target: num
             <rect x={x + bw * 0.14} y={H - h1} width={bw * 0.34} height={h1} rx="2" fill={C.teal}><title>{pLong(m)} income {won(m.inc)}</title></rect>
             <rect x={x + bw * 0.52} y={H - h2} width={bw * 0.34} height={h2} rx="2" fill="#d9825b"><title>{pLong(m)} spending {won(m.out)}</title></rect>
             <text x={x + bw / 2} y={H + 15} textAnchor="middle" fontSize="11.5" fill={C.muted}>{pShort(m.p)}</text>
-            <text x={x + bw / 2} y={H + 32} textAnchor="middle" fontSize="12" fontWeight="700" fill={rate == null ? C.muted : rate >= target ? C.good : C.bad}>{rate == null ? "–" : rate + "%"}</text>
+            <text x={x + bw / 2} y={H + 32} textAnchor="middle" fontSize="12" fontWeight="700" fill={rate == null || target == null ? C.muted : rate >= target ? C.good : C.bad}>{rate == null ? "–" : rate + "%"}</text>
           </g>
         );
       })}

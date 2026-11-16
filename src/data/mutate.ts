@@ -2,7 +2,19 @@ import { addMonths, kstToday, newId } from "../lib/dates";
 import { blankSrs, schedule, type Grade } from "../lib/srs";
 import type { DocMap, EventDraft } from "./types";
 
-export type Mutation = { docs: DocMap; event: EventDraft };
+export type Mutation = { docs: DocMap; event: EventDraft; keys?: string[] };
+
+export type SettingsInput = {
+  shift?: { start: string; end: string; days: number[] };
+  savingsTargetPct?: number;
+  redirectGift?: { amountKRW: number };
+};
+
+export function saveSettings(docs: DocMap, settings: SettingsInput): Mutation {
+  const next = cloneDocs(docs);
+  next.settings = settings;
+  return { docs: next, event: event("settings", { ...settings }), keys: ["settings"] };
+};
 
 function cloneDocs(docs: DocMap): DocMap {
   return structuredClone(docs);

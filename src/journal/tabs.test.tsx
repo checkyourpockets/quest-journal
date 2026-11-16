@@ -45,6 +45,7 @@ function actions(): JournalActions {
     addReading: vi.fn(),
     requestEpisode: vi.fn(),
     requestSeries: vi.fn(),
+    saveSettings: vi.fn(),
     signOut: vi.fn(),
   };
 }
