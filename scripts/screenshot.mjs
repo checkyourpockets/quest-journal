@@ -88,7 +88,7 @@ async function main() {
   async function open() {
     await cdp.send("Page.navigate", { url: BASE });
     for (let i = 0; i < 40; i++) {
-      const ready = await evalJs(`document.body && document.body.innerText.includes("Matt's Quest Journal") && document.querySelectorAll('[role=tab]').length === 9`);
+      const ready = await evalJs(`document.body && document.body.innerText.includes("Quest Journal") && document.querySelectorAll('[role=tab]').length === 9`);
       if (ready) return;
       const err = await evalJs(`document.body ? document.body.innerText.slice(0, 400) : ""`);
       if (typeof err === "string" && /not found|Fixture failed|missing fixture/i.test(err)) throw new Error(err);

@@ -26,7 +26,7 @@ export function SignIn({
   return (
     <div className="qj">
       <div className="top" style={{ paddingBottom: 28 }}>
-        <div className="brand">Matt's Quest Journal</div>
+        <div className="brand">Quest Journal</div>
         <div className="date">A field journal for the long work</div>
       </div>
       <div className="wrap">

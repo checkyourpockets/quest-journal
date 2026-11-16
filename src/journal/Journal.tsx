@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import type { SavePhase } from "../data/types";
 import type { Grade } from "../lib/srs";
 import { dayLabel, daysTo, longDate, mLong, pLong, pShort, wd, won, wonK } from "../lib/dates";
-import { ALL_STATUSES, C, CH_PROMPTS, FIN_COL, GIVERS, INV_CATS, MORE_STATUSES, SERIES_THEMES, SHIFT, SLOTS, SLOT_OF, SLOT_SUB_OFF, SLOT_SUB_WORK, STATUS_TONE, TABS, WIN_WORK, giverName, recipeEmoji, type TabName } from "./constants";
+import { ALL_STATUSES, C, CH_PROMPTS, FIN_COL, GIVERS, INV_CATS, MORE_STATUSES, SERIES_THEMES, SLOTS, SLOT_OF, SLOT_SUB_OFF, SLOT_SUB_WORK, STATUS_TONE, TABS, WIN_WORK, giverName, recipeEmoji, shiftInfo, type TabName } from "./constants";
 import type { InvItem, JournalView, QuestView, RecipeView } from "./model";
 import { Bar, Checks, Panel, PeriodBars, Radar, Ring, Sigil, TabTitle, Tag, branchLine } from "./bits";
 import { SkillWeb } from "./SkillWeb";
@@ -164,7 +164,7 @@ export function Journal({ view, actions }: { view: JournalView; actions: Journal
     return a;
   }, [QS, sf, gf, sort]);
 
-  const selShift = SHIFT[view.shifts[sel]] || SHIFT.OFF;
+  const selShift = shiftInfo(view.shifts[sel]);
   const dayGroups = useMemo(() => {
     const out: Record<string, QuestView[]> = {};
     QS.filter((q) => (q.s === "active" || q.s === "offered") && q.ty !== "habit" && (!q.end || q.end >= sel)).forEach((q) => {
@@ -180,7 +180,7 @@ export function Journal({ view, actions }: { view: JournalView; actions: Journal
   }, [QS, sel, selShift.work]);
 
   const shiftDays = Object.keys(view.shifts).sort();
-  const todayShift = SHIFT[view.shifts[view.today]] || SHIFT.OFF;
+  const todayShift = shiftInfo(view.shifts[view.today]);
   const pill = phaseText(actions.phase, actions.detail);
   const givers = Array.from(new Set(QS.flatMap((q) => [q.g, ...q.cg]))).sort();
 
@@ -196,7 +196,7 @@ export function Journal({ view, actions }: { view: JournalView; actions: Journal
   return (
     <div className="qj" id="qj-top">
       <div className="top">
-        <div className="brand">Matt's Quest Journal</div>
+        <div className="brand">Quest Journal</div>
         <div className="date">{longDate(view.today)} · KST · {todayShift.label}</div>
         {pill ? <div className={"savepill" + (actions.phase === "error" ? " bad" : "")} role="status">{pill}</div> : null}
         <div className="hchips">
@@ -238,7 +238,7 @@ function Today({ view, sel, setSel, shiftDays, selShift, dayGroups, offered, ope
   sel: string;
   setSel: (d: string) => void;
   shiftDays: string[];
-  selShift: { label: string; hours: string; work: boolean };
+  selShift: { label: string; work: boolean };
   dayGroups: Record<string, QuestView[]>;
   offered: number;
   openQuest: (q: QuestView) => void;
@@ -255,12 +255,12 @@ function Today({ view, sel, setSel, shiftDays, selShift, dayGroups, offered, ope
       <Panel id="sec-week" title="This week" sub={shiftDays.length ? "Your shifts for " + pShort(view.weekStart) + "–" + pShort(view.weekEnd) + ". Tap a day to see its shift and quests. The page stays where it is. Tap a quest to open it in your Journal." : "No shift week is on file yet."}>
         <div className="days">
           {shiftDays.map((d) => {
-            const s = SHIFT[view.shifts[d]] || SHIFT.OFF;
+            const s = shiftInfo(view.shifts[d]);
             return (
               <button key={d} type="button" className={"day" + (sel === d ? " sel" : "") + (d === view.today ? " today" : "")} onClick={() => setSel(d)} aria-pressed={sel === d}>
                 <div className="dw">{d === view.today ? "Today" : wd(d)}</div>
                 <div className="dn num">{Number(d.slice(8))}</div>
-                <div className="ds">{s.work ? view.shifts[d] + " " + s.hours.replaceAll(":00", "") : "Off"}</div>
+                <div className="ds">{s.work ? view.shifts[d] : "Off"}</div>
               </button>
             );
           })}
@@ -269,8 +269,7 @@ function Today({ view, sel, setSel, shiftDays, selShift, dayGroups, offered, ope
           <div style={{ marginTop: 18, borderTop: "2px solid " + C.tint, paddingTop: 14 }}>
             <div style={{ textAlign: "center" }}>
               <div className="serif" style={{ fontSize: 24, fontWeight: 700, color: C.tealDk }}>{dayLabel(sel)} · {selShift.label}</div>
-              <div className="sub">{selShift.work ? selShift.hours + " KST. Print deadline is 20:00." : "No shift. Work quests are tucked away and commute quests move to Anytime."}</div>
-              {selShift.work ? <div className="sub">Training days: gym after the shift (Hevy Upper/Lower split, about 3 a week).</div> : null}
+              <div className="sub">{selShift.work ? "Work day. Quests stay in their usual slots." : "Day off. Work quests are tucked away and commute quests move to Anytime."}</div>
             </div>
             {SLOTS.filter((s) => dayGroups[s]).map((s) => (
               <div key={s} style={{ marginTop: 12 }}>
@@ -467,7 +466,7 @@ function Chronicle({ view, actions }: { view: JournalView; actions: JournalActio
             </div>
           ))}
         </Panel>
-        <Panel title="Beat notes" sub="Defense-beat notes you jotted on shift.">
+        <Panel title="Beat notes" sub="Notes you saved.">
           {view.beats.slice().reverse().map((b) => (
             <div key={b.id} className="row"><div><div className="t">{b.title}</div><div className="sub">{b.d ? dayLabel(b.d) : ""}</div><div style={{ fontSize: 15, marginTop: 2 }}>{b.text}</div></div></div>
           ))}
@@ -653,7 +652,7 @@ function Crafting({ view }: { view: JournalView }) {
     <Fragment>
       <TabTitle title="Crafting" sub="Your recipe book and builds. Cook a recipe once to unlock it. Ticks show what your Backpack already has." />
       <div className="chips" style={{ marginBottom: 16 }}>
-        <div className="kpi"><span className="lbl">Recipes unlocked</span><b>{unlocked} of {meals.length}</b><small>{unlocked >= 12 ? "Hearth threshold reached" : "Unlock 12 for the kitchen milestone"}</small></div>
+        <div className="kpi"><span className="lbl">Recipes unlocked</span><b>{unlocked} of {meals.length}</b></div>
         <div className="kpi"><span className="lbl">Ready to cook now</span><b>{ready}</b><small>every required ingredient in stock</small></div>
         <div className="kpi"><span className="lbl">Builds</span><b>{builds}</b></div>
       </div>
@@ -792,15 +791,14 @@ function Ledger({ view }: { view: JournalView }) {
   const give = L.give[gy] || [];
   const giveTot = give.reduce((t, g) => t + g[1], 0);
   const credit = Math.min(giveTot, 1e7) * 0.15 + Math.max(0, giveTot - 1e7) * 0.3;
-  const ytd = periods.filter((m) => m.p >= "2026-02-20");
-  const ytdInc = ytd.reduce((t, m) => t + m.inc, 0);
-  const ytdOut = ytd.reduce((t, m) => t + m.out, 0);
-  const ytdGive = ytd.reduce((t, m) => t + m.give, 0);
+  const ytdInc = periods.reduce((t, m) => t + m.inc, 0);
+  const ytdOut = periods.reduce((t, m) => t + m.out, 0);
+  const ytdGive = periods.reduce((t, m) => t + m.give, 0);
   const recent = L.recent.slice(0, 30);
   if (!cur) return <Fragment><TabTitle title="Ledger" sub="Money in and out, measured payday to payday." /><Panel><div className="sub">No pay periods on file.</div></Panel></Fragment>;
   return (
     <Fragment>
-      <TabTitle title="Ledger" sub={"Money in and out, measured payday to payday, against your " + L.target + "% savings target."} />
+      <TabTitle title="Ledger" sub={L.target ? "Money in and out, measured payday to payday, against your " + L.target + "% savings target." : "Money in and out, measured payday to payday."} />
       <Panel title={"Pay period · " + pLong(cur)} sub="Pick a pay period to see where the money went.">
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
           <select value={lm} onChange={(e) => setLm(e.target.value)} aria-label="Pay period">
@@ -832,9 +830,9 @@ function Ledger({ view }: { view: JournalView }) {
         <div className="scroll"><div style={{ minWidth: 520 }}><PeriodBars periods={periods} target={L.target} /></div></div>
         {ytdInc ? (
           <div className="chips" style={{ marginTop: 10 }}>
-            <div className="kpi"><span className="lbl">Income since Feb 20</span><b>{wonK(ytdInc)}</b></div>
-            <div className="kpi"><span className="lbl">Spending since Feb 20</span><b>{wonK(ytdOut)}</b></div>
-            <div className="kpi"><span className="lbl">Saved since Feb 20</span><b>{Math.round(((ytdInc - ytdOut - ytdGive) / ytdInc) * 1000) / 10}%</b></div>
+            <div className="kpi"><span className="lbl">Income on file</span><b>{wonK(ytdInc)}</b></div>
+            <div className="kpi"><span className="lbl">Spending on file</span><b>{wonK(ytdOut)}</b></div>
+            <div className="kpi"><span className="lbl">Saved on file</span><b>{Math.round(((ytdInc - ytdOut - ytdGive) / ytdInc) * 1000) / 10}%</b></div>
           </div>
         ) : null}
         <details style={{ marginTop: 8 }}>
@@ -860,17 +858,22 @@ function Ledger({ view }: { view: JournalView }) {
           ))}
           {giveTot ? <div style={{ borderLeft: "3px solid " + FIN_COL.Donations, paddingLeft: 10, marginTop: 12, fontSize: 15 }}>On Korea's regular system, about <b className="num">{won(credit * 1.1)}</b> could come back at year-end settlement ({won(credit)} credit plus 10% local tax). On the 19% flat rate, donation credits don't apply.</div> : <div className="sub">No donations tagged for this year.</div>}
         </Panel>
-        <Panel title="Redirect the Gift" sub={"₩" + L.redirect.amount.toLocaleString("en-US") + " a month, going to " + L.redirect.to + "."}>
-          <table><thead><tr><th>Month</th><th className="r">Target</th><th>Status</th></tr></thead>
-            <tbody>{[0, 1, 2, 3].map((i) => {
-              const from = (L.redirect.from || "2026-12").slice(0, 7);
-              const [y, m] = from.split("-").map(Number);
-              const dt = new Date(Date.UTC(y, (m - 1) + i, 1));
-              const label = dt.toISOString().slice(0, 7);
-              return <tr key={label}><td>{mLong(label)}</td><td className="r">{won(L.redirect.amount)}</td><td className="sub">{i === 0 ? "first month" : "upcoming"}</td></tr>;
-            })}</tbody>
-          </table>
-        </Panel>
+        {L.redirect.amount > 0 || L.redirect.to ? (
+          <Panel title="Monthly redirect" sub={(L.redirect.amount ? won(L.redirect.amount) + " a month" : "A monthly amount") + (L.redirect.to ? ", going to " + L.redirect.to : "") + "."}>
+            {L.redirect.from ? (
+              <table><thead><tr><th>Month</th><th className="r">Target</th><th>Status</th></tr></thead>
+                <tbody>{[0, 1, 2, 3].map((i) => {
+                  const from = L.redirect.from.slice(0, 7);
+                  const [y, m] = from.split("-").map(Number);
+                  if (!y || !m) return null;
+                  const dt = new Date(Date.UTC(y, (m - 1) + i, 1));
+                  const label = dt.toISOString().slice(0, 7);
+                  return <tr key={label}><td>{mLong(label)}</td><td className="r">{won(L.redirect.amount)}</td><td className="sub">{i === 0 ? "first month" : "upcoming"}</td></tr>;
+                })}</tbody>
+              </table>
+            ) : <div className="sub">No start month on file.</div>}
+          </Panel>
+        ) : null}
       </div>
       <Panel title="Recent transactions" sub={L.rows ? "The latest " + recent.length + " of " + L.rows.toLocaleString() + " transactions on file." : "Latest transactions on file."}>
         <div className="scroll" style={{ maxHeight: 440, overflowY: "auto" }}><table><thead><tr><th>Date</th><th>Payee</th><th>Category</th><th className="r">Amount</th></tr></thead>

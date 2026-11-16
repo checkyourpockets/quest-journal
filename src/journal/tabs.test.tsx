@@ -6,20 +6,20 @@ import type { DocMap } from "../data/types";
 
 const docs: DocMap = {
   computed: {
-    today: "2026-11-16",
-    shifts: { "2026-11-16": "OFF" },
-    omen: { date: "2026-11-16", text: "Rest.", why: "Because." },
+    today: "2026-03-01",
+    shifts: { "2026-03-01": "OFF" },
+    omen: { date: "2026-03-01", text: "Rest.", why: "Because." },
     oracle: "A note.",
     bag: { ember: 1, hourglass: 0, reroll: 0 },
-    coach: { date: "2026-11-15", slipping: "Sleep.", step: "Lights out." },
+    coach: { date: "2026-02-28", slipping: "Sleep.", step: "Lights out." },
     char: { total: 10, earned: 10, spent: 0, lvl: 1, into: 10, cls: { name: "Warden", why: "" }, aspects: [], rooms: [], branches: [], nodeCounts: { un: 0, av: 0, gh: 0, hid: 0 }, moves: [] },
-    ledger: { target: 20, rows: 0, periods: [{ p: "2026-10-21", end: "2026-11-21", inc: 1, out: 1, give: 0, inv: 0, rate: 0 }], pcats: {}, pmerch: {}, give: {}, recent: [], redirect: { amount: 1, from: "2026-12", to: "savings" } },
+    ledger: { target: 10, rows: 0, periods: [{ p: "2026-01-15", end: "2026-02-15", inc: 1, out: 1, give: 0, inv: 0, rate: 0 }], pcats: {}, pmerch: {}, give: {}, recent: [], redirect: { amount: 1, from: "2026-04", to: "savings" } },
   },
   collections: {
     quests: [{ id: "q", title: "Sample quest", giver: "coach", type: "side", status: "active", window: "any", rewards: { xp: 10 }, conditions: [], flavor: "Go." }],
     inventory: [{ id: "i", name: "Salt", category: "Pantry", qty: null, unit: "" }],
     blueprints: [{ id: "b", name: "Sample soup", kind: "meal", materials: [], steps: ["Stir."], tools: [] }],
-    runes: [{ id: "r", w: "물", meaning: "water", hanja: "水", known: false, srs: { due: "2026-11-16", ease: 2.5, ivl: 0, reps: 0, lapses: 0, last: null } }],
+    runes: [{ id: "r", w: "가나다", meaning: "sample", hanja: "", known: false, srs: { due: "2026-03-01", ease: 2.5, ivl: 0, reps: 0, lapses: 0, last: null } }],
     entries: [],
     readings: [],
     series: [{ title: "Tale", premise: "Once.", arc: [{ title: "One" }], episodes: {} }],
@@ -51,7 +51,7 @@ function actions(): JournalActions {
 
 describe("tabs", () => {
   it("renders all nine tabs", async () => {
-    render(<Journal view={buildView(docs, "2026-11-16")} actions={actions()} />);
+    render(<Journal view={buildView(docs, "2026-03-01")} actions={actions()} />);
     const titles: Record<string, string> = { Journal: "Quest journal" };
     for (const name of ["Today", "Journal", "Chronicle", "Runes", "Crafting", "Backpack", "Ledger", "Character", "World"]) {
       fireEvent.click(screen.getByRole("tab", { name }));

@@ -8,7 +8,7 @@ export default function App() {
   if (journal.booting && journal.mode !== "fixture") {
     return (
       <div className="qj">
-        <div className="top" style={{ paddingBottom: 28 }}><div className="brand">Matt's Quest Journal</div></div>
+        <div className="top" style={{ paddingBottom: 28 }}><div className="brand">Quest Journal</div></div>
         <div className="wrap"><p className="sub" style={{ textAlign: "center" }}>Opening the journal…</p></div>
       </div>
     );
@@ -17,7 +17,7 @@ export default function App() {
     if (journal.session || journal.mode === "fixture") {
       return (
         <div className="qj">
-          <div className="top" style={{ paddingBottom: 28 }}><div className="brand">Matt's Quest Journal</div></div>
+          <div className="top" style={{ paddingBottom: 28 }}><div className="brand">Quest Journal</div></div>
           <div className="wrap"><p className={journal.loadError ? "err" : "sub"} style={{ textAlign: "center" }}>{journal.loadError || "Loading your pages…"}</p></div>
         </div>
       );

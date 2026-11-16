@@ -52,7 +52,7 @@ export const WIN_WORK: Record<string, string> = {
   shift: "During the shift",
   commute_out: "On the way home",
   evening: "Late evening (home)",
-  postshift: "Gym",
+  postshift: "After work",
   any: "Anytime",
 };
 
@@ -68,24 +68,23 @@ export const SLOT_OF: Record<string, string> = {
 
 export const SLOTS = ["Morning", "Afternoon", "Evening", "Anytime"];
 export const SLOT_SUB_WORK: Record<string, string> = {
-  Morning: "Before work and on the way in",
-  Afternoon: "At the desk (free time is mostly 12:00–16:00)",
-  Evening: "Way home, gym and home",
+  Morning: "Earlier in the day",
+  Afternoon: "Middle of the day",
+  Evening: "Later on",
   Anytime: "Whenever it fits",
 };
 export const SLOT_SUB_OFF: Record<string, string> = {
-  Morning: "Your morning",
-  Afternoon: "Your afternoon",
-  Evening: "Evening, gym and home",
+  Morning: "Morning",
+  Afternoon: "Afternoon",
+  Evening: "Evening",
   Anytime: "Whenever it fits",
 };
 
-export const SHIFT: Record<string, { label: string; hours: string; work: boolean }> = {
-  PM: { label: "PM shift", hours: "12:00–20:00", work: true },
-  PPM: { label: "PPM shift", hours: "14:00–22:00", work: true },
-  WFH: { label: "Work from home", hours: "09:00–18:00", work: true },
-  OFF: { label: "Day off", hours: "No shift", work: false },
-};
+/** Shift codes come from the journal data. OFF is a day off; any other code is a work day. Hours are not hardcoded. */
+export function shiftInfo(code: string | undefined): { label: string; work: boolean } {
+  if (!code || code === "OFF") return { label: "Day off", work: false };
+  return { label: code, work: true };
+}
 
 export const FIN_COL: Record<string, string> = {
   "Food & dining": "#e5892f",
@@ -150,8 +149,6 @@ export const R_EMO: [RegExp, string][] = [
   [/yogurt/i, "🥣"],
   [/pesto/i, "🌿"],
   [/bar/i, "🍫"],
-  [/desk/i, "🖥️"],
-  [/hydroponic/i, "🌱"],
 ];
 
 export function recipeEmoji(name: string, kind: string): string {
