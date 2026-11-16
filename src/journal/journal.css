@@ -110,6 +110,12 @@
 .qj .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; align-items: start; }
 .qj .chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; }
 .qj .kpi { background: #fbf8f1; border: 1px solid #e8e0d0; border-radius: 12px; padding: 10px 14px; min-width: 130px; flex: 1 1 130px; text-align: center; }
+button.kpi { font: inherit; color: inherit; cursor: pointer; }
+button.kpi:hover { border-color: #0f6e6e; }
+.qj .verdict { font-weight: 700; font-size: 18px; }
+.qj .verdict.correct { color: #2e7d4f; }
+.qj .verdict.close { color: #94550a; }
+.qj .verdict.wrong { color: #b3412e; }
 .qj .kpi b { display: block; font-size: 21px; font-weight: 600; color: #0b4f53; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .qj .kpi small { color: #56676a; font-size: 13px; display: block; line-height: 1.35; }
 .qj .tag { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; padding: 0 8px; font-size: 13px; font-weight: 600; background: rgba(30, 43, 45, 0.05); line-height: 1.75; }

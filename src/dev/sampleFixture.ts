@@ -63,7 +63,11 @@ export function sampleDocs(): DocMap {
       blueprints: [],
       entries: [],
       readings: [],
-      runes: [],
+      runes: [
+        { id: "r1", w: "가나다", hanja: "", meaning: "base, stronghold", known: false, srs: { due: "2000-01-01", ease: 2.5, ivl: 0, lapses: 0, last: null, reps: 0 } },
+        { id: "r2", w: "라마바", hanja: "城", meaning: "castle", known: false, srs: { due: "2000-01-01", ease: 2.5, ivl: 0, lapses: 0, last: null, reps: 0 } },
+        { id: "r3", w: "사아자", hanja: "", meaning: "river", known: true, srs: { due: "2026-06-01", ease: 2.5, ivl: 10, lapses: 0, last: "2026-02-01", reps: 4 } },
+      ],
       series: [],
       beatnotes: [],
       pins: [{ id: "p", name: "Sample place", category: "home", note: "Nowhere in particular" }],

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import type { SavePhase } from "../data/types";
 import type { Grade } from "../lib/srs";
 import type { SettingsInput } from "../data/mutate";
+import { checkAnswer, type AnswerVerdict } from "../lib/answer";
 import { dayLabel, daysTo, isoWeekday, longDate, mLong, pLong, pShort, wd, won, wonK } from "../lib/dates";
 import { ALL_STATUSES, C, CH_PROMPTS, FIN_COL, GIVERS, INV_CATS, MORE_STATUSES, SERIES_THEMES, SLOTS, SLOT_OF, SLOT_SUB_OFF, SLOT_SUB_WORK, STATUS_TONE, TABS, WIN_WORK, giverName, recipeEmoji, shiftInfo, type TabName } from "./constants";
 import type { InvItem, JournalView, QuestView, RecipeView, SettingsView } from "./model";
@@ -498,6 +499,12 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
   const [revOn, setRevOn] = useState(false);
   const [revQ, setRevQ] = useState<string[]>([]);
   const [revShow, setRevShow] = useState(false);
+  const [reviewMode, setReviewMode] = useState<"flip" | "type">(() => {
+    try { return localStorage.getItem("qj.review.mode.v1") === "type" ? "type" : "flip"; } catch { return "flip"; }
+  });
+  const [typed, setTyped] = useState("");
+  const [verdict, setVerdict] = useState<AnswerVerdict | null>(null);
+  const [deck, setDeck] = useState<null | "due" | "known" | "hanja" | "all">(null);
   const [rw, setRw] = useState("");
   const [rh, setRh] = useState("");
   const [rm, setRm] = useState("");
@@ -513,49 +520,93 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
   const byId = new Map(view.runes.map((r) => [r.id, r]));
   const rv = revOn && revQ.length ? byId.get(revQ[0]) : undefined;
   const list = rf === "due" ? due : rf === "known" ? view.runes.filter((r) => r.known) : rf === "soon" ? view.runes.filter((r) => !r.known && (!r.due || r.due > view.today)) : view.runes;
-  const start = () => { setRevQ(due.map((r) => r.id)); setRevShow(false); setRevOn(true); };
+  const begin = (ids: string[]) => {
+    setRevQ(ids);
+    setRevShow(false);
+    setTyped("");
+    setVerdict(null);
+    setRevOn(true);
+    setDeck(null);
+  };
   const grade = (g: Grade) => {
     const id = revQ[0];
     if (!id) return;
     actions.gradeRune(id, g);
     setRevQ(g === "again" ? revQ.slice(1).concat(id) : revQ.slice(1));
     setRevShow(false);
+    setTyped("");
+    setVerdict(null);
   };
-  const known = view.runes.filter((r) => r.known).length;
-  const hanja = view.runes.filter((r) => r.h).length;
+  const chooseMode = (mode: "flip" | "type") => {
+    setReviewMode(mode);
+    try { localStorage.setItem("qj.review.mode.v1", mode); } catch { /* private mode */ }
+  };
+  const knownRunes = view.runes.filter((r) => r.known);
+  const hanjaRunes = view.runes.filter((r) => r.h);
+  const known = knownRunes.length;
+  const hanja = hanjaRunes.length;
+  const deckRunes = deck === "due" ? due : deck === "known" ? knownRunes : deck === "hanja" ? hanjaRunes : view.runes;
+  const deckTitle = deck === "due" ? "Due for review" : deck === "known" ? "Known" : deck === "hanja" ? "With hanja" : "All runes";
+  const suggested: Grade | null = verdict === "correct" ? "good" : verdict === "close" ? "hard" : verdict === "wrong" ? "again" : null;
   const nextEp = view.series.episodes.find((e) => !e.date);
   return (
     <Fragment>
       <TabTitle title="Runes" sub="Korean words saved from your readings, with review dates." />
       <div className="chips" style={{ marginBottom: 16 }}>
-        <div className="kpi"><span className="lbl">Runes</span><b>{view.runes.length}</b><small>from {view.reads.length} readings</small></div>
-        <div className="kpi"><span className="lbl">Due for review</span><b style={{ color: due.length ? C.amberTx : C.good }}>{due.length}</b><small>due on or before today</small></div>
-        <div className="kpi"><span className="lbl">Known</span><b>{known}</b></div>
-        <div className="kpi"><span className="lbl">With hanja</span><b>{hanja}</b></div>
+        <button type="button" className="kpi" onClick={() => setDeck("all")} aria-pressed={deck === "all"}><span className="lbl">Runes</span><b>{view.runes.length}</b><small>from {view.reads.length} readings</small></button>
+        <button type="button" className="kpi" onClick={() => setDeck("due")} aria-pressed={deck === "due"}><span className="lbl">Due for review</span><b style={{ color: due.length ? C.amberTx : C.good }}>{due.length}</b><small>due on or before today</small></button>
+        <button type="button" className="kpi" onClick={() => setDeck("known")} aria-pressed={deck === "known"}><span className="lbl">Known</span><b>{known}</b></button>
+        <button type="button" className="kpi" onClick={() => setDeck("hanja")} aria-pressed={deck === "hanja"}><span className="lbl">With hanja</span><b>{hanja}</b></button>
       </div>
-      <Panel tint title="Rune review" sub={due.length + " cards are due. Say each word's meaning in your head, flip it, then grade yourself honestly."}>
+      {deck ? (
+        <Panel id="rune-filter" title={deckTitle} sub={deckRunes.length + (deckRunes.length === 1 ? " rune" : " runes")}>
+          <div className="chips" style={{ marginBottom: 10 }}>
+            <button type="button" className="btn sm" onClick={() => setDeck(null)}>Back</button>
+            <button type="button" className="btn primary sm" disabled={!deckRunes.length} onClick={() => begin(deckRunes.map((r) => r.id))}>Review these</button>
+          </div>
+          {deckRunes.length === 0 ? <div className="sub" style={{ textAlign: "center" }}>Nothing in this list.</div> : (
+            <div className="scroll"><table lang="ko"><thead><tr><th>Word</th><th>Hanja</th><th>Meaning</th><th className="r">Due</th></tr></thead>
+              <tbody>{deckRunes.map((r) => <tr key={r.id}><td className="kw" style={{ fontWeight: 700, fontSize: 17 }}>{r.w}</td><td className="hanja kw">{r.h}</td><td>{r.m}</td><td className="r sub nw">{r.known ? "known" : r.due ? pShort(r.due) : "new"}</td></tr>)}</tbody>
+            </table></div>
+          )}
+        </Panel>
+      ) : null}
+      <Panel tint title="Rune review" sub={reviewMode === "type" ? "Type the meaning. The check stays on this device, then you grade the card the same way as a flip." : due.length + " cards are due. Say each word's meaning in your head, flip it, then grade yourself honestly."}>
         {!revOn ? (
-          <div style={{ textAlign: "center" }}>
-            <button type="button" className="btn primary" style={{ fontSize: 17, padding: "10px 22px" }} onClick={start} disabled={!due.length}>Start rune review · {due.length} due</button>
+          <div style={{ display: "grid", gap: 12, justifyItems: "center" }}>
+            <div className="seg" role="group" aria-label="Review style">
+              <button type="button" className={reviewMode === "flip" ? "on" : ""} onClick={() => chooseMode("flip")}>Flip</button>
+              <button type="button" className={reviewMode === "type" ? "on" : ""} onClick={() => chooseMode("type")}>Type</button>
+            </div>
+            <button type="button" className="btn primary" style={{ fontSize: 17, padding: "10px 22px" }} onClick={() => begin(due.map((r) => r.id))} disabled={!due.length}>Start rune review · {due.length} due</button>
           </div>
         ) : rv ? (
           <div style={{ display: "grid", gap: 10, justifyItems: "center" }}>
             <div className="sub num">{revQ.length} left in this sitting</div>
             <div className="rvword" lang="ko">{rv.w}</div>
-            {revShow ? (
+            {reviewMode === "type" && !verdict ? (
+              <form style={{ display: "grid", gap: 8, width: "min(420px, 100%)" }} onSubmit={(e) => { e.preventDefault(); if (typed.trim()) setVerdict(checkAnswer(rv.m, typed)); }}>
+                <input type="text" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Meaning in English" aria-label="Typed meaning" autoComplete="off" />
+                <button type="submit" className="btn primary" disabled={!typed.trim()}>Check</button>
+              </form>
+            ) : null}
+            {reviewMode === "flip" && !revShow ? <button type="button" className="btn primary" onClick={() => setRevShow(true)}>Show meaning</button> : null}
+            {(reviewMode === "flip" && revShow) || (reviewMode === "type" && verdict) ? (
               <Fragment>
+                {verdict ? <div className={"verdict " + verdict} role="status">{verdict === "correct" ? "Correct" : verdict === "close" ? "Close" : "Not quite"}</div> : null}
                 <div style={{ fontSize: 20, fontWeight: 600 }}>{rv.m}</div>
                 {rv.h ? <div className="hanja" style={{ fontSize: 22 }}>{rv.h}</div> : null}
+                {verdict && verdict !== "correct" ? <button type="button" className="btn sm" onClick={() => setVerdict("correct")}>I was right</button> : null}
                 <div className="chips">
                   {(["again", "hard", "good", "easy"] as const).map((g) => (
-                    <button key={g} type="button" className={"btn" + (g === "good" ? " primary" : "")} onClick={() => grade(g)}>{g[0].toUpperCase() + g.slice(1)}</button>
+                    <button key={g} type="button" className={"btn" + (g === (suggested || "good") ? " primary" : "")} onClick={() => grade(g)}>{g[0].toUpperCase() + g.slice(1)}</button>
                   ))}
                 </div>
-                <div className="note">Again brings the card back at the end of this sitting. The next due date is saved either way.</div>
+                <div className="note">{verdict ? "The highlighted grade matches this check. Again brings the card back at the end of this sitting." : "Again brings the card back at the end of this sitting. The next due date is saved either way."}</div>
                 {actions.phase === "saved" ? <div className="ok">Saved</div> : null}
               </Fragment>
-            ) : <button type="button" className="btn primary" onClick={() => setRevShow(true)}>Show meaning</button>}
-            <button type="button" className="btn sm" onClick={() => setRevOn(false)}>Stop for now</button>
+            ) : null}
+            <button type="button" className="btn sm" onClick={() => { setRevOn(false); setVerdict(null); setTyped(""); }}>Stop for now</button>
           </div>
         ) : (
           <div style={{ textAlign: "center" }}>
