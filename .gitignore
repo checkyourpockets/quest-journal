@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+dev-dist
+fixtures
+*.local
+.DS_Store
+coverage
+.vite
+
+# Personal journal exports. Never commit these.
+questlog-data.json
+web.json
+**/questlog-data.json
+**/web.json
