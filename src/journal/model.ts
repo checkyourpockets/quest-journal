@@ -134,7 +134,30 @@ export type JournalView = {
   pins: PinView[];
   web: WebData | null;
   rules: { offerCap: number; offerExpiryDays: number; habitCore: string[] };
+  settings: SettingsView;
 };
+
+export type SettingsView = {
+  shift: { start: string; end: string; days: number[] } | null;
+  savingsTargetPct: number | null;
+  redirectAmountKRW: number | null;
+};
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export function parseSettings(raw: unknown): SettingsView {
+  const s = obj(raw);
+  const shift = obj(s.shift);
+  const start = str(shift.start);
+  const end = str(shift.end);
+  const days = arr(shift.days).map((n) => num(n)).filter((n) => n >= 1 && n <= 7);
+  const gift = obj(s.redirectGift);
+  return {
+    shift: HHMM.test(start) && HHMM.test(end) ? { start, end, days } : null,
+    savingsTargetPct: typeof s.savingsTargetPct === "number" && Number.isFinite(s.savingsTargetPct) ? s.savingsTargetPct : null,
+    redirectAmountKRW: typeof gift.amountKRW === "number" && Number.isFinite(gift.amountKRW) ? gift.amountKRW : null,
+  };
+}
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -495,6 +518,7 @@ export function buildView(docs: DocMap, today = kstToday()): JournalView {
     recipes: mapRecipes(arr(col.blueprints)),
     pins,
     web: mapWeb(docs.skill_web),
+    settings: parseSettings(docs.settings),
     rules: {
       offerCap: num(rules.offerCap, 3),
       offerExpiryDays: num(rules.offerExpiryDays, 7),

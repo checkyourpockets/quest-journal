@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { SavePhase } from "../data/types";
 import type { Grade } from "../lib/srs";
-import { dayLabel, daysTo, longDate, mLong, pLong, pShort, wd, won, wonK } from "../lib/dates";
+import type { SettingsInput } from "../data/mutate";
+import { dayLabel, daysTo, isoWeekday, longDate, mLong, pLong, pShort, wd, won, wonK } from "../lib/dates";
 import { ALL_STATUSES, C, CH_PROMPTS, FIN_COL, GIVERS, INV_CATS, MORE_STATUSES, SERIES_THEMES, SLOTS, SLOT_OF, SLOT_SUB_OFF, SLOT_SUB_WORK, STATUS_TONE, TABS, WIN_WORK, giverName, recipeEmoji, shiftInfo, type TabName } from "./constants";
-import type { InvItem, JournalView, QuestView, RecipeView } from "./model";
+import type { InvItem, JournalView, QuestView, RecipeView, SettingsView } from "./model";
 import { Bar, Checks, Panel, PeriodBars, Radar, Ring, Sigil, TabTitle, Tag, branchLine } from "./bits";
 import { SkillWeb } from "./SkillWeb";
 
@@ -22,8 +23,22 @@ export type JournalActions = {
   addReading: (input: { title: string; ko: string; en: string; work: boolean }) => void;
   requestEpisode: () => void;
   requestSeries: (input: { theme: string; format: "story" | "articles"; length: number }) => void;
+  saveSettings: (settings: SettingsInput) => void;
   signOut: () => void;
 };
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function dayPlan(date: string, code: string | undefined, settings: SettingsView): { label: string; hours: string; work: boolean } {
+  const base = shiftInfo(code);
+  if (!settings.shift || settings.shift.days.length === 0) return { label: base.label, hours: "", work: base.work };
+  const work = settings.shift.days.includes(isoWeekday(date));
+  return {
+    work,
+    label: work ? (code && code !== "OFF" ? code : "Work") : "Day off",
+    hours: work ? settings.shift.start + "–" + settings.shift.end : "",
+  };
+}
 
 function phaseText(phase: SavePhase, detail: string): string {
   if (phase === "saving") return "Saving…";
@@ -164,7 +179,7 @@ export function Journal({ view, actions }: { view: JournalView; actions: Journal
     return a;
   }, [QS, sf, gf, sort]);
 
-  const selShift = shiftInfo(view.shifts[sel]);
+  const selShift = dayPlan(sel, view.shifts[sel], view.settings);
   const dayGroups = useMemo(() => {
     const out: Record<string, QuestView[]> = {};
     QS.filter((q) => (q.s === "active" || q.s === "offered") && q.ty !== "habit" && (!q.end || q.end >= sel)).forEach((q) => {
@@ -180,7 +195,7 @@ export function Journal({ view, actions }: { view: JournalView; actions: Journal
   }, [QS, sel, selShift.work]);
 
   const shiftDays = Object.keys(view.shifts).sort();
-  const todayShift = shiftInfo(view.shifts[view.today]);
+  const todayShift = dayPlan(view.today, view.shifts[view.today], view.settings);
   const pill = phaseText(actions.phase, actions.detail);
   const givers = Array.from(new Set(QS.flatMap((q) => [q.g, ...q.cg]))).sort();
 
@@ -197,7 +212,7 @@ export function Journal({ view, actions }: { view: JournalView; actions: Journal
     <div className="qj" id="qj-top">
       <div className="top">
         <div className="brand">Quest Journal</div>
-        <div className="date">{longDate(view.today)} · KST · {todayShift.label}</div>
+        <div className="date">{longDate(view.today)} · KST · {todayShift.hours || todayShift.label}</div>
         {pill ? <div className={"savepill" + (actions.phase === "error" ? " bad" : "")} role="status">{pill}</div> : null}
         <div className="hchips">
           {chips.map((c) => <button key={c.label} type="button" className="hchip" data-tip={c.tip} title={c.tip} aria-label={c.tip} onClick={c.onClick}>{c.label}</button>)}
@@ -214,7 +229,7 @@ export function Journal({ view, actions }: { view: JournalView; actions: Journal
         {tab === "Crafting" ? <Crafting view={view} /> : null}
         {tab === "Backpack" ? <Backpack view={view} actions={actions} /> : null}
         {tab === "Ledger" ? <Ledger view={view} /> : null}
-        {tab === "Character" ? <Character view={view} /> : null}
+        {tab === "Character" ? <Character view={view} actions={actions} /> : null}
         {tab === "World" ? <World view={view} /> : null}
       </div>
       <div className="foot">
@@ -238,7 +253,7 @@ function Today({ view, sel, setSel, shiftDays, selShift, dayGroups, offered, ope
   sel: string;
   setSel: (d: string) => void;
   shiftDays: string[];
-  selShift: { label: string; work: boolean };
+  selShift: { label: string; hours: string; work: boolean };
   dayGroups: Record<string, QuestView[]>;
   offered: number;
   openQuest: (q: QuestView) => void;
@@ -255,12 +270,12 @@ function Today({ view, sel, setSel, shiftDays, selShift, dayGroups, offered, ope
       <Panel id="sec-week" title="This week" sub={shiftDays.length ? "Your shifts for " + pShort(view.weekStart) + "–" + pShort(view.weekEnd) + ". Tap a day to see its shift and quests. The page stays where it is. Tap a quest to open it in your Journal." : "No shift week is on file yet."}>
         <div className="days">
           {shiftDays.map((d) => {
-            const s = shiftInfo(view.shifts[d]);
+            const s = dayPlan(d, view.shifts[d], view.settings);
             return (
               <button key={d} type="button" className={"day" + (sel === d ? " sel" : "") + (d === view.today ? " today" : "")} onClick={() => setSel(d)} aria-pressed={sel === d}>
                 <div className="dw">{d === view.today ? "Today" : wd(d)}</div>
                 <div className="dn num">{Number(d.slice(8))}</div>
-                <div className="ds">{s.work ? view.shifts[d] : "Off"}</div>
+                <div className="ds">{s.hours || (s.work ? s.label : "Off")}</div>
               </button>
             );
           })}
@@ -269,7 +284,7 @@ function Today({ view, sel, setSel, shiftDays, selShift, dayGroups, offered, ope
           <div style={{ marginTop: 18, borderTop: "2px solid " + C.tint, paddingTop: 14 }}>
             <div style={{ textAlign: "center" }}>
               <div className="serif" style={{ fontSize: 24, fontWeight: 700, color: C.tealDk }}>{dayLabel(sel)} · {selShift.label}</div>
-              <div className="sub">{selShift.work ? "Work day. Quests stay in their usual slots." : "Day off. Work quests are tucked away and commute quests move to Anytime."}</div>
+              <div className="sub">{selShift.work ? (selShift.hours ? selShift.hours + ". Quests stay in their usual slots." : "Work day. Quests stay in their usual slots.") : "Day off. Work quests are tucked away and commute quests move to Anytime."}</div>
             </div>
             {SLOTS.filter((s) => dayGroups[s]).map((s) => (
               <div key={s} style={{ marginTop: 12 }}>
@@ -795,10 +810,12 @@ function Ledger({ view }: { view: JournalView }) {
   const ytdOut = periods.reduce((t, m) => t + m.out, 0);
   const ytdGive = periods.reduce((t, m) => t + m.give, 0);
   const recent = L.recent.slice(0, 30);
+  const target = view.settings.savingsTargetPct;
+  const redirectAmount = view.settings.redirectAmountKRW;
   if (!cur) return <Fragment><TabTitle title="Ledger" sub="Money in and out, measured payday to payday." /><Panel><div className="sub">No pay periods on file.</div></Panel></Fragment>;
   return (
     <Fragment>
-      <TabTitle title="Ledger" sub={L.target ? "Money in and out, measured payday to payday, against your " + L.target + "% savings target." : "Money in and out, measured payday to payday."} />
+      <TabTitle title="Ledger" sub={target == null ? "Money in and out, measured payday to payday." : "Money in and out, measured payday to payday, against your " + target + "% savings target."} />
       <Panel title={"Pay period · " + pLong(cur)} sub="Pick a pay period to see where the money went.">
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
           <select value={lm} onChange={(e) => setLm(e.target.value)} aria-label="Pay period">
@@ -808,7 +825,7 @@ function Ledger({ view }: { view: JournalView }) {
         <div className="chips">
           <div className="kpi"><span className="lbl">Income</span><b>{won(cur.inc)}</b></div>
           <div className="kpi"><span className="lbl">Spending</span><b>{won(cur.out)}</b></div>
-          <div className="kpi"><span className="lbl">Saved</span><b style={{ color: cur.rate == null ? C.muted : cur.rate * 100 >= L.target ? C.good : C.bad }}>{cur.rate == null ? "–" : Math.round(cur.rate * 1000) / 10 + "%"}</b><small>target {L.target}%{cur.end ? "" : ", so far this period"}</small></div>
+          <div className="kpi"><span className="lbl">Saved</span><b style={{ color: cur.rate == null || target == null ? C.muted : cur.rate * 100 >= target ? C.good : C.bad }}>{cur.rate == null ? "–" : Math.round(cur.rate * 1000) / 10 + "%"}</b><small>{target == null ? "No target set" : "target " + target + "%" + (cur.end ? "" : ", so far this period")}</small></div>
           <div className="kpi"><span className="lbl">Donated</span><b>{won(cur.give)}</b></div>
           <div className="kpi"><span className="lbl">Sent to invest</span><b>{won(cur.inv)}</b></div>
         </div>
@@ -825,9 +842,9 @@ function Ledger({ view }: { view: JournalView }) {
         </div>
         {L.pmerch[cur.p] ? <div style={{ marginTop: 14 }}><div className="lbl" style={{ marginBottom: 6 }}>Top payees</div><div className="chips" style={{ justifyContent: "flex-start" }}>{L.pmerch[cur.p].map((x) => <span key={x[0]} className="tag" style={{ color: C.tealDk }}>{x[0]} · {wonK(x[1])}</span>)}</div></div> : null}
       </Panel>
-      <Panel title="Pay periods" sub={"Income versus spending. Saved % sits under each period. Green is at or above " + L.target + "%."}>
+      <Panel title="Pay periods" sub={target == null ? "Income versus spending. Set a savings target in Settings to color these bars." : "Income versus spending. Saved % sits under each period. Green is at or above " + target + "%."}>
         <div className="chips" style={{ marginBottom: 6, fontSize: 14 }}><span style={{ color: C.teal, fontWeight: 600 }}>■ Income</span><span style={{ color: "#c0643c", fontWeight: 600 }}>■ Spending</span></div>
-        <div className="scroll"><div style={{ minWidth: 520 }}><PeriodBars periods={periods} target={L.target} /></div></div>
+        <div className="scroll"><div style={{ minWidth: 520 }}><PeriodBars periods={periods} target={target} /></div></div>
         {ytdInc ? (
           <div className="chips" style={{ marginTop: 10 }}>
             <div className="kpi"><span className="lbl">Income on file</span><b>{wonK(ytdInc)}</b></div>
@@ -838,7 +855,7 @@ function Ledger({ view }: { view: JournalView }) {
         <details style={{ marginTop: 8 }}>
           <summary>Period by period</summary>
           <div className="scroll"><table><thead><tr><th>Pay period</th><th className="r">In</th><th className="r">Out</th><th className="r">Given</th><th className="r">Invested</th><th className="r">Saved</th></tr></thead>
-            <tbody>{periods.slice().reverse().map((m) => <tr key={m.p}><td>{pLong(m)}{!m.end ? " *" : ""}</td><td className="r">{won(m.inc)}</td><td className="r">{won(m.out)}</td><td className="r">{won(m.give)}</td><td className="r">{m.inv ? won(m.inv) : "–"}</td><td className="r" style={{ color: m.rate == null ? C.muted : m.rate * 100 >= L.target ? C.good : C.bad }}>{m.rate == null ? "–" : Math.round(m.rate * 100) + "%"}</td></tr>)}</tbody>
+            <tbody>{periods.slice().reverse().map((m) => <tr key={m.p}><td>{pLong(m)}{!m.end ? " *" : ""}</td><td className="r">{won(m.inc)}</td><td className="r">{won(m.out)}</td><td className="r">{won(m.give)}</td><td className="r">{m.inv ? won(m.inv) : "–"}</td><td className="r" style={{ color: m.rate == null || target == null ? C.muted : m.rate * 100 >= target ? C.good : C.bad }}>{m.rate == null ? "–" : Math.round(m.rate * 100) + "%"}</td></tr>)}</tbody>
           </table></div>
           <div className="sub">* In progress. Saved is income minus spending minus donations, from one salary deposit to the next.</div>
         </details>
@@ -858,22 +875,9 @@ function Ledger({ view }: { view: JournalView }) {
           ))}
           {giveTot ? <div style={{ borderLeft: "3px solid " + FIN_COL.Donations, paddingLeft: 10, marginTop: 12, fontSize: 15 }}>On Korea's regular system, about <b className="num">{won(credit * 1.1)}</b> could come back at year-end settlement ({won(credit)} credit plus 10% local tax). On the 19% flat rate, donation credits don't apply.</div> : <div className="sub">No donations tagged for this year.</div>}
         </Panel>
-        {L.redirect.amount > 0 || L.redirect.to ? (
-          <Panel title="Monthly redirect" sub={(L.redirect.amount ? won(L.redirect.amount) + " a month" : "A monthly amount") + (L.redirect.to ? ", going to " + L.redirect.to : "") + "."}>
-            {L.redirect.from ? (
-              <table><thead><tr><th>Month</th><th className="r">Target</th><th>Status</th></tr></thead>
-                <tbody>{[0, 1, 2, 3].map((i) => {
-                  const from = L.redirect.from.slice(0, 7);
-                  const [y, m] = from.split("-").map(Number);
-                  if (!y || !m) return null;
-                  const dt = new Date(Date.UTC(y, (m - 1) + i, 1));
-                  const label = dt.toISOString().slice(0, 7);
-                  return <tr key={label}><td>{mLong(label)}</td><td className="r">{won(L.redirect.amount)}</td><td className="sub">{i === 0 ? "first month" : "upcoming"}</td></tr>;
-                })}</tbody>
-              </table>
-            ) : <div className="sub">No start month on file.</div>}
-          </Panel>
-        ) : null}
+        <Panel title="Redirect the Gift" sub="The monthly amount from Settings.">
+          {redirectAmount == null ? <div className="sub" style={{ textAlign: "center" }}>No amount set.</div> : <div className="serif" style={{ textAlign: "center", fontSize: 28, color: C.tealDk }}>{won(redirectAmount)} <span className="sub">a month</span></div>}
+        </Panel>
       </div>
       <Panel title="Recent transactions" sub={L.rows ? "The latest " + recent.length + " of " + L.rows.toLocaleString() + " transactions on file." : "Latest transactions on file."}>
         <div className="scroll" style={{ maxHeight: 440, overflowY: "auto" }}><table><thead><tr><th>Date</th><th>Payee</th><th>Category</th><th className="r">Amount</th></tr></thead>
@@ -884,12 +888,86 @@ function Ledger({ view }: { view: JournalView }) {
   );
 }
 
-function Character({ view }: { view: JournalView }) {
+function SettingsPanel({ view, actions }: { view: JournalView; actions: JournalActions }) {
+  const s = view.settings;
+  const [start, setStart] = useState(s.shift?.start || "");
+  const [end, setEnd] = useState(s.shift?.end || "");
+  const [days, setDays] = useState<number[]>(s.shift?.days || []);
+  const [pct, setPct] = useState(s.savingsTargetPct == null ? "" : String(s.savingsTargetPct));
+  const [amount, setAmount] = useState(s.redirectAmountKRW == null ? "" : String(s.redirectAmountKRW));
+  const [formError, setFormError] = useState("");
+
+  const toggleDay = (n: number) => setDays((cur) => cur.includes(n) ? cur.filter((d) => d !== n) : cur.concat(n).sort((a, b) => a - b));
+
+  const save = () => {
+    const next: SettingsInput = {};
+    const hasStart = start.trim() !== "";
+    const hasEnd = end.trim() !== "";
+    if (hasStart || hasEnd || days.length) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(end)) {
+        setFormError("Shift times need to be HH:MM, or leave both blank.");
+        return;
+      }
+      next.shift = { start, end, days };
+    }
+    if (pct.trim() !== "") {
+      const n = Number(pct);
+      if (!Number.isFinite(n)) { setFormError("Savings target needs to be a number, or blank."); return; }
+      next.savingsTargetPct = n;
+    }
+    if (amount.trim() !== "") {
+      const n = Number(amount);
+      if (!Number.isFinite(n)) { setFormError("Redirect amount needs to be a number, or blank."); return; }
+      next.redirectGift = { amountKRW: n };
+    }
+    setFormError("");
+    actions.saveSettings(next);
+  };
+
+  return (
+    <Panel id="settings" title="Settings" sub="Saved to your journal. Blank fields stay unset.">
+      <div style={{ display: "grid", gap: 12, maxWidth: 560, margin: "0 auto" }}>
+        <div>
+          <div className="lbl">Shift hours</div>
+          <div className="chips" style={{ justifyContent: "flex-start", marginTop: 6 }}>
+            <label className="sub">Start <input type="time" value={start} onChange={(e) => setStart(e.target.value)} aria-label="Shift start" style={{ width: "auto" }} /></label>
+            <label className="sub">End <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} aria-label="Shift end" style={{ width: "auto" }} /></label>
+          </div>
+          <div className="daysel" style={{ marginTop: 8 }} role="group" aria-label="Shift days">
+            {WEEKDAYS.map((name, i) => {
+              const n = i + 1;
+              const on = days.includes(n);
+              return <button key={name} type="button" className={"btn sm" + (on ? " on" : "")} aria-pressed={on} onClick={() => toggleDay(n)}>{name}</button>;
+            })}
+          </div>
+        </div>
+        <label className="sub">Savings target %
+          <input type="text" inputMode="decimal" placeholder="Not set" value={pct} onChange={(e) => setPct(e.target.value)} aria-label="Savings target percent" />
+        </label>
+        <label className="sub">Redirect the Gift (KRW per month)
+          <input type="text" inputMode="numeric" placeholder="Not set" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Redirect amount in KRW" />
+        </label>
+        {formError ? <div className="err" role="alert">{formError}</div> : null}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button type="button" className="btn primary" onClick={save}>Save settings</button>
+          {actions.phase === "saved" ? <span className="ok">Saved</span> : null}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function Character({ view, actions }: { view: JournalView; actions: JournalActions }) {
   const ch = view.char;
   const counts = ch.nodeCounts;
+  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <Fragment>
       <TabTitle title="Character" sub="Your level, class, aspects, base rooms and skill web." />
+      <div style={{ display: "flex", justifyContent: "flex-end", margin: "-8px 0 12px" }}>
+        <button type="button" className="btn sm" aria-label="Settings" onClick={() => setSettingsOpen((v) => !v)}>⚙ Settings</button>
+      </div>
+      {settingsOpen ? <SettingsPanel view={view} actions={actions} /> : null}
       <div className="grid2">
         <Panel id="sec-level" title="Level & class" sub="XP comes from cleared quests. A level is 250 XP.">
           <div style={{ display: "flex", gap: 14, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
@@ -921,7 +999,7 @@ function Character({ view }: { view: JournalView }) {
           ) : null}
         </Panel>
       </div>
-      <Panel title="Skill web" sub={counts.un + " unlocked · " + counts.av + " open to try · " + (counts.gh + counts.hid) + " still hidden. Rings run from now, on the inside, to about six months."}>
+      <Panel id="skill-web" title="Skill web" sub={counts.un + " unlocked · " + counts.av + " open to try · " + (counts.gh + counts.hid) + " still hidden. Rings run from now, on the inside, to about six months. The web starts fitted to the screen."}>
         <SkillWeb web={view.web} />
         {ch.branches.length ? (
           <details style={{ marginTop: 12 }}>

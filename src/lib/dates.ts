@@ -8,6 +8,12 @@ export function kstToday(): string {
   return kstNow().toISOString().slice(0, 10);
 }
 
+/** Monday is 1 and Sunday is 7. */
+export function isoWeekday(iso: string): number {
+  const day = new Date(iso.slice(0, 10) + "T00:00:00Z").getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
 export function addDays(iso: string, days: number): string {
   const t = new Date(iso + "T00:00:00Z").getTime() + days * DAY;
   return new Date(t).toISOString().slice(0, 10);

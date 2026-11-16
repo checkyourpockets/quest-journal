@@ -233,8 +233,10 @@
 .qj .ib:disabled { opacity: 0.35; cursor: default; }
 .qj .ib.warn { color: #b3412e; border-color: #e3b8ae; }
 .qj .inv { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-top: 1px solid #ece4d6; font-size: 15px; align-items: center; flex-wrap: wrap; }
-.qj .webbox { overflow: auto; border: 1px solid #e2dacb; border-radius: 12px; background: #fbf8f1; max-height: 760px; }
-.qj .webbox svg { display: block; margin: 0 auto; }
+.qj .webbox { position: relative; overflow: hidden; border: 1px solid #e2dacb; border-radius: 12px; background: #fbf8f1; height: min(72vh, 680px); min-height: 320px; touch-action: none; cursor: grab; }
+.qj .webbox:active { cursor: grabbing; }
+.qj .webbox svg { display: block; }
+.qj .daysel { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .qj .snode { cursor: pointer; }
 .qj .rvword { font-size: 40px; font-weight: 700; text-align: center; line-height: 1.2; }
 .qj .foot { max-width: 760px; margin: 0 auto; padding: 6px 18px 28px; text-align: center; color: #56676a; font-size: 14.5px; }
