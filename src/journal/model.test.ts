@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildView } from "./model";
+import { buildView, parseFinance } from "./model";
 import { schedule } from "../lib/srs";
 import { addChronicle, gradeRune, saveSettings, toggleHabitToday } from "../data/mutate";
 import type { DocMap } from "../data/types";
@@ -83,6 +83,8 @@ describe("journal view", () => {
     expect(view.settings.shift).toBeNull();
     expect(view.settings.savingsTargetPct).toBeNull();
     expect(view.settings.redirectAmountKRW).toBeNull();
+    expect(view.settings.usdKrw).toBeNull();
+    expect(view.finance).toBeNull();
   });
 
   it("reads a settings document and saves one without filling gaps", () => {
@@ -98,6 +100,7 @@ describe("journal view", () => {
     expect(view.settings.redirectAmountKRW).toBe(1000);
     const saved = saveSettings(docs, { savingsTargetPct: 12 });
     expect(saved.keys).toEqual(["settings"]);
+    expect(view.settings.usdKrw).toBeNull();
     expect(saved.event.kind).toBe("settings");
     expect((saved.docs.settings as { savingsTargetPct: number }).savingsTargetPct).toBe(12);
     expect((saved.docs.settings as { shift?: unknown }).shift).toBeUndefined();
@@ -126,5 +129,19 @@ describe("journal view", () => {
     const rune = (graded.docs.collections as { runes: { srs: { due: string } }[] }).runes[0];
     expect(rune.srs.due > "2026-03-01").toBe(true);
     expect(graded.event.kind).toBe("rune_review");
+  });
+
+  it("reads a finance document and skips a broken holding", () => {
+    const finance = parseFinance({
+      asOf: "2026-03-01T00:00:00.000Z",
+      currency: "USD",
+      accounts: [{ name: "Sample broker", kind: "investment", value: 50, costBasis: 40 }, { name: "Nope", kind: "other" }],
+      holdings: [{ t: "AAA", q: 1, v: 50, c: 40 }, { t: "", v: 1, c: 1 }],
+      monthly: [{ m: "2026-01", toInvest: 10, spend: 5, fromKorea: 3, gifts: 1 }, { m: "bad", toInvest: 9 }],
+    });
+    expect(finance?.accounts).toEqual([{ name: "Sample broker", kind: "investment", amount: 50, cost: 40 }]);
+    expect(finance?.holdings).toEqual([{ t: "AAA", q: 1, v: 50, c: 40 }]);
+    expect(finance?.monthly).toHaveLength(1);
+    expect(parseFinance(undefined)).toBeNull();
   });
 });

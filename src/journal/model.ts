@@ -135,12 +135,34 @@ export type JournalView = {
   web: WebData | null;
   rules: { offerCap: number; offerExpiryDays: number; habitCore: string[] };
   settings: SettingsView;
+  finance: FinanceView | null;
 };
 
 export type SettingsView = {
   shift: { start: string; end: string; days: number[] } | null;
   savingsTargetPct: number | null;
   redirectAmountKRW: number | null;
+  usdKrw: number | null;
+};
+
+export type FinanceAccount = {
+  name: string;
+  kind: "cash" | "investment";
+  amount: number | null;
+  cost: number | null;
+};
+
+export type FinanceHolding = { t: string; q: number; v: number; c: number };
+
+export type FinanceMonth = { m: string; toInvest: number; spend: number; fromKorea: number; gifts: number };
+
+export type FinanceView = {
+  asOf: string;
+  currency: string;
+  accounts: FinanceAccount[];
+  holdings: FinanceHolding[];
+  monthly: FinanceMonth[];
+  rules: string;
 };
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -156,7 +178,45 @@ export function parseSettings(raw: unknown): SettingsView {
     shift: HHMM.test(start) && HHMM.test(end) ? { start, end, days } : null,
     savingsTargetPct: typeof s.savingsTargetPct === "number" && Number.isFinite(s.savingsTargetPct) ? s.savingsTargetPct : null,
     redirectAmountKRW: typeof gift.amountKRW === "number" && Number.isFinite(gift.amountKRW) ? gift.amountKRW : null,
+    usdKrw: typeof s.usdKrw === "number" && s.usdKrw > 0 ? s.usdKrw : null,
   };
+}
+
+export function parseFinance(raw: unknown): FinanceView | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const src = raw as Record<string, unknown>;
+  const accounts = arr(src.accounts).map((row) => {
+    const x = obj(row);
+    const kind = x.kind === "cash" || x.kind === "investment" ? x.kind : null;
+    const name = str(x.name);
+    if (!kind || !name) return null;
+    const balance = typeof x.balance === "number" ? x.balance : null;
+    const value = typeof x.value === "number" ? x.value : null;
+    const cost = typeof x.costBasis === "number" ? x.costBasis : null;
+    return { name, kind, amount: kind === "cash" ? (balance ?? value) : (value ?? balance), cost } satisfies FinanceAccount;
+  }).filter((row): row is FinanceAccount => !!row);
+  const holdings = arr(src.holdings).map((row) => {
+    const x = obj(row);
+    if (typeof x.t !== "string" || !x.t) return null;
+    if (typeof x.v !== "number" || typeof x.c !== "number") return null;
+    return { t: x.t, q: typeof x.q === "number" ? x.q : 0, v: x.v, c: x.c } satisfies FinanceHolding;
+  }).filter((row): row is FinanceHolding => !!row);
+  const monthly = arr(src.monthly).map((row) => {
+    const x = obj(row);
+    const m = str(x.m);
+    if (!/^\d{4}-\d{2}$/.test(m)) return null;
+    return {
+      m,
+      toInvest: typeof x.toInvest === "number" ? x.toInvest : 0,
+      spend: typeof x.spend === "number" ? x.spend : 0,
+      fromKorea: typeof x.fromKorea === "number" ? x.fromKorea : 0,
+      gifts: typeof x.gifts === "number" ? x.gifts : 0,
+    } satisfies FinanceMonth;
+  }).filter((row): row is FinanceMonth => !!row);
+  const asOf = str(src.asOf);
+  const rules = str(src.rules);
+  if (!accounts.length && !holdings.length && !monthly.length && !asOf) return null;
+  return { asOf, currency: str(src.currency, "USD") || "USD", accounts, holdings, monthly, rules };
 }
 
 function obj(v: unknown): Record<string, unknown> {
@@ -519,6 +579,7 @@ export function buildView(docs: DocMap, today = kstToday()): JournalView {
     pins,
     web: mapWeb(docs.skill_web),
     settings: parseSettings(docs.settings),
+    finance: parseFinance(docs.finance),
     rules: {
       offerCap: num(rules.offerCap, 3),
       offerExpiryDays: num(rules.offerExpiryDays, 7),

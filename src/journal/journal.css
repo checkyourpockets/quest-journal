@@ -10,6 +10,7 @@
 .qj * { box-sizing: border-box; }
 .qj .serif { font-family: "Cormorant Garamond", "EB Garamond", Garamond, Palatino, Georgia, serif; }
 .qj .num { font-variant-numeric: tabular-nums lining-nums; }
+.qj .mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
 .qj .lbl { font-size: 13.5px; font-weight: 600; color: #56676a; letter-spacing: 0.01em; }
 .qj .top {
   background: linear-gradient(180deg, #14716f 0%, #0c5156 100%);
