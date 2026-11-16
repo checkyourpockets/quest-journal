@@ -65,6 +65,17 @@ export function won(n: number): string {
   return (n < 0 ? "−₩" : "₩") + Math.abs(Math.round(n)).toLocaleString("en-US");
 }
 
+export function usd(n: number): string {
+  const abs = Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (n < 0 ? "−$" : "$") + abs;
+}
+
+export function kstStamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul" }) + " KST";
+}
+
 export function wonK(n: number): string {
   return "₩" + (Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1000) + "k");
 }

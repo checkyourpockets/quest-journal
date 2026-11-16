@@ -3,9 +3,10 @@ import type { SavePhase } from "../data/types";
 import type { Grade } from "../lib/srs";
 import type { SettingsInput } from "../data/mutate";
 import { checkAnswer, type AnswerVerdict } from "../lib/answer";
-import { dayLabel, daysTo, isoWeekday, longDate, mLong, pLong, pShort, wd, won, wonK } from "../lib/dates";
+import { dayLabel, daysTo, isoWeekday, kstStamp, longDate, mLong, pLong, pShort, usd, wd, won, wonK } from "../lib/dates";
+import { combinedSavings, usdFlow } from "../lib/savings";
 import { ALL_STATUSES, C, CH_PROMPTS, FIN_COL, GIVERS, INV_CATS, MORE_STATUSES, SERIES_THEMES, SLOTS, SLOT_OF, SLOT_SUB_OFF, SLOT_SUB_WORK, STATUS_TONE, TABS, WIN_WORK, giverName, recipeEmoji, shiftInfo, type TabName } from "./constants";
-import type { InvItem, JournalView, QuestView, RecipeView, SettingsView } from "./model";
+import type { FinanceView, InvItem, JournalView, QuestView, RecipeView, SettingsView } from "./model";
 import { Bar, Checks, Panel, PeriodBars, Radar, Ring, Sigil, TabTitle, Tag, branchLine } from "./bits";
 import { SkillWeb } from "./SkillWeb";
 
@@ -863,10 +864,13 @@ function Ledger({ view }: { view: JournalView }) {
   const recent = L.recent.slice(0, 30);
   const target = view.settings.savingsTargetPct;
   const redirectAmount = view.settings.redirectAmountKRW;
-  if (!cur) return <Fragment><TabTitle title="Ledger" sub="Money in and out, measured payday to payday." /><Panel><div className="sub">No pay periods on file.</div></Panel></Fragment>;
   return (
     <Fragment>
       <TabTitle title="Ledger" sub={target == null ? "Money in and out, measured payday to payday." : "Money in and out, measured payday to payday, against your " + target + "% savings target."} />
+      {view.finance ? <UsSide finance={view.finance} /> : null}
+      <CombinedSavings view={view} />
+      {!cur ? <Panel><div className="sub">No pay periods on file.</div></Panel> : null}
+      {cur ? <Fragment>
       <Panel title={"Pay period · " + pLong(cur)} sub="Pick a pay period to see where the money went.">
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
           <select value={lm} onChange={(e) => setLm(e.target.value)} aria-label="Pay period">
@@ -935,7 +939,124 @@ function Ledger({ view }: { view: JournalView }) {
           <tbody>{recent.map((r, i) => <tr key={i}><td className="num nw">{r.d ? dayLabel(r.d) : ""}</td><td>{r.w}</td><td><span style={{ color: FIN_COL[r.c] || C.muted }}>●</span> {r.c}</td><td className="r" style={{ color: r.a < 0 ? C.good : C.ink }}>{r.a < 0 ? "+" + won(-r.a) : won(r.a)}</td></tr>)}</tbody>
         </table></div>
       </Panel>
+      </Fragment> : null}
     </Fragment>
+  );
+}
+
+function gainTone(gain: number): string {
+  if (gain > 0) return C.good;
+  if (gain < 0) return C.bad;
+  return C.muted;
+}
+
+function signedPct(rate: number): string {
+  const body = Math.abs(rate * 100).toFixed(1) + "%";
+  if (rate > 0) return "+" + body;
+  if (rate < 0) return "−" + body;
+  return body;
+}
+
+function UsSide({ finance }: { finance: FinanceView }) {
+  const stamp = finance.asOf ? kstStamp(finance.asOf) : "";
+  const holdings = finance.holdings.slice().sort((a, b) => b.v - a.v);
+  const investments = finance.accounts.filter((a) => a.kind === "investment" && a.amount != null);
+  const cash = finance.accounts.filter((a) => a.kind === "cash" && a.amount != null);
+  if (!investments.length && !cash.length && !holdings.length && !stamp) return null;
+  return (
+    <Panel id="us-side" title="US side" sub={stamp ? "As of " + stamp + "." : "Dollar accounts and holdings."}>
+      <div className="chips">
+        {investments.map((account) => {
+          const value = account.amount ?? 0;
+          const cost = account.cost;
+          const gain = cost == null ? null : value - cost;
+          const rate = cost ? (value - cost) / cost : null;
+          return (
+            <div key={account.name} className="kpi">
+              <span className="lbl">{account.name}</span>
+              <b className="mono">{usd(value)}</b>
+              {cost != null && gain != null ? <small className="mono" style={{ color: gainTone(gain) }}>{usd(gain)}{rate == null ? "" : " · " + signedPct(rate)} vs cost</small> : <small>value</small>}
+            </div>
+          );
+        })}
+        {cash.map((account) => (
+          <div key={account.name} className="kpi">
+            <span className="lbl">{account.name} cash</span>
+            <b className="mono">{usd(account.amount ?? 0)}</b>
+          </div>
+        ))}
+      </div>
+      {finance.rules ? <div className="sub" style={{ marginTop: 10 }}>{finance.rules}</div> : null}
+      {holdings.length ? (
+        <details style={{ marginTop: 12 }}>
+          <summary>Holdings</summary>
+          <div className="scroll"><table>
+            <thead><tr><th>Ticker</th><th className="r">Qty</th><th className="r">Value</th><th className="r">Gain</th></tr></thead>
+            <tbody>{holdings.map((row) => {
+              const gain = row.v - row.c;
+              const rate = row.c ? gain / row.c : null;
+              return (
+                <tr key={row.t}>
+                  <td>{row.t}</td>
+                  <td className="r mono">{row.q}</td>
+                  <td className="r mono">{usd(row.v)}</td>
+                  <td className="r mono" style={{ color: gainTone(gain) }}>{usd(gain)}{rate == null ? "" : " · " + signedPct(rate)}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table></div>
+        </details>
+      ) : null}
+    </Panel>
+  );
+}
+
+function CombinedSavings({ view }: { view: JournalView }) {
+  const months = view.finance?.monthly ?? [];
+  const usdSide = usdFlow(months);
+  const periods = view.ledger.periods;
+  const krwIncome = periods.reduce((t, m) => t + m.inc, 0);
+  const krwSpend = periods.reduce((t, m) => t + m.out, 0);
+  const krwGive = periods.reduce((t, m) => t + m.give, 0);
+  const krwSaved = krwIncome - krwSpend - krwGive;
+  const krwRate = krwIncome > 0 ? krwSaved / krwIncome : null;
+  const fx = view.settings.usdKrw;
+  const combined = combinedSavings({ krwIncome, krwSaved, usdSaved: usdSide.saved, usdSpend: usdSide.spend, usdKrw: fx });
+  const target = view.settings.savingsTargetPct;
+  if (!months.length && !periods.length) return null;
+  const tone = (rate: number | null) => rate == null || target == null ? C.muted : rate * 100 >= target ? C.good : C.bad;
+  return (
+    <Panel id="combined-savings" title="Combined savings" sub="Korea pay periods and US months. Money moved from Korea, and gifts, are left out of the US side.">
+      <div className="chips">
+        {periods.length ? (
+          <div className="kpi">
+            <span className="lbl">Korea saved</span>
+            <b>{won(krwSaved)}</b>
+            <small className="mono" style={{ color: tone(krwRate) }}>{krwRate == null ? "No income on file" : Math.round(krwRate * 1000) / 10 + "% of income"}{target == null ? "" : " · target " + target + "%"}</small>
+          </div>
+        ) : null}
+        {months.length ? (
+          <div className="kpi">
+            <span className="lbl">US set aside</span>
+            <b className="mono">{usd(usdSide.saved)}</b>
+            <small className="mono" style={{ color: tone(usdSide.rate) }}>spent {usd(usdSide.spend)}{usdSide.rate == null ? "" : " · " + Math.round(usdSide.rate * 1000) / 10 + "%"}</small>
+          </div>
+        ) : null}
+        {combined ? (
+          <div className="kpi">
+            <span className="lbl">Combined</span>
+            <b className="mono" style={{ color: tone(combined.rate) }}>{Math.round(combined.rate * 1000) / 10 + "%"}</b>
+            <small>{target == null ? "No target set" : "target " + target + "%"} · {won(combined.savedKrw)} saved</small>
+          </div>
+        ) : months.length && periods.length ? (
+          <div className="kpi">
+            <span className="lbl">Combined</span>
+            <b>Hidden</b>
+            <small>Set a USD to KRW rate in Settings to combine these.</small>
+          </div>
+        ) : null}
+      </div>
+    </Panel>
   );
 }
 
@@ -946,6 +1067,7 @@ function SettingsPanel({ view, actions }: { view: JournalView; actions: JournalA
   const [days, setDays] = useState<number[]>(s.shift?.days || []);
   const [pct, setPct] = useState(s.savingsTargetPct == null ? "" : String(s.savingsTargetPct));
   const [amount, setAmount] = useState(s.redirectAmountKRW == null ? "" : String(s.redirectAmountKRW));
+  const [fx, setFx] = useState(s.usdKrw == null ? "" : String(s.usdKrw));
   const [formError, setFormError] = useState("");
 
   const toggleDay = (n: number) => setDays((cur) => cur.includes(n) ? cur.filter((d) => d !== n) : cur.concat(n).sort((a, b) => a - b));
@@ -970,6 +1092,11 @@ function SettingsPanel({ view, actions }: { view: JournalView; actions: JournalA
       const n = Number(amount);
       if (!Number.isFinite(n)) { setFormError("Redirect amount needs to be a number, or blank."); return; }
       next.redirectGift = { amountKRW: n };
+    }
+    if (fx.trim() !== "") {
+      const n = Number(fx);
+      if (!Number.isFinite(n) || n <= 0) { setFormError("USD to KRW needs to be a positive number, or blank."); return; }
+      next.usdKrw = n;
     }
     setFormError("");
     actions.saveSettings(next);
@@ -997,6 +1124,9 @@ function SettingsPanel({ view, actions }: { view: JournalView; actions: JournalA
         </label>
         <label className="sub">Redirect the Gift (KRW per month)
           <input type="text" inputMode="numeric" placeholder="Not set" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Redirect amount in KRW" />
+        </label>
+        <label className="sub">USD to KRW
+          <input type="text" inputMode="decimal" placeholder="Not set" value={fx} onChange={(e) => setFx(e.target.value)} aria-label="USD to KRW rate" />
         </label>
         {formError ? <div className="err" role="alert">{formError}</div> : null}
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>

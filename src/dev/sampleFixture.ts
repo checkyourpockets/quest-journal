@@ -30,8 +30,26 @@ export function sampleDocs(): DocMap {
     generatedAt: "2026-03-01",
     settings: {
       shift: { start: "09:00", end: "17:00", days: [1, 2, 3, 4, 5] },
-      savingsTargetPct: 15,
+      savingsTargetPct: 20,
       redirectGift: { amountKRW: 1000 },
+      usdKrw: 1000,
+    },
+    finance: {
+      asOf: "2026-03-01T03:00:00.000Z",
+      currency: "USD",
+      accounts: [
+        { name: "Sample broker", kind: "investment", value: 1250, costBasis: 1000 },
+        { name: "Sample bank", kind: "cash", balance: 80 },
+      ],
+      holdings: [
+        { t: "AAA", q: 4, v: 800, c: 600 },
+        { t: "BBB", q: 2, v: 450, c: 500 },
+      ],
+      monthly: [
+        { m: "2026-01", toInvest: 100, spend: 40, fromKorea: 20, gifts: 5 },
+        { m: "2026-02", toInvest: 50, spend: 30, fromKorea: 0 },
+      ],
+      rules: "Sample note: a transfer is not spending.",
     },
     computed: {
       today: "2026-03-02",
@@ -52,7 +70,7 @@ export function sampleDocs(): DocMap {
       },
       ledger: {
         target: 0, rows: 1,
-        periods: [{ p: "2026-01-15", end: "2026-02-15", inc: 200, out: 80, give: 0, inv: 0, rate: 0.6 }],
+        periods: [{ p: "2026-01-15", end: "2026-02-15", inc: 2000000, out: 1200000, give: 0, inv: 0, rate: 0.4 }],
         pcats: {}, pmerch: {}, give: {}, recent: [],
         redirect: {},
       },

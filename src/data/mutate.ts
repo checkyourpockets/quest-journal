@@ -8,6 +8,7 @@ export type SettingsInput = {
   shift?: { start: string; end: string; days: number[] };
   savingsTargetPct?: number;
   redirectGift?: { amountKRW: number };
+  usdKrw?: number;
 };
 
 export function saveSettings(docs: DocMap, settings: SettingsInput): Mutation {
