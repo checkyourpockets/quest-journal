@@ -1,11 +1,19 @@
 const DAY = 86400000;
 
+/** Korea's clock. Added onto the UTC epoch so the device's own timezone never changes the date. */
 export function kstNow(): Date {
   return new Date(Date.now() + 9 * 3600 * 1000);
 }
 
 export function kstToday(): string {
   return kstNow().toISOString().slice(0, 10);
+}
+
+/** Calendar day of a stored due value. A time suffix does not move the day. */
+export function dueDay(due: string | null | undefined): string | null {
+  if (!due) return null;
+  const day = due.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
 }
 
 /** Monday is 1 and Sunday is 7. */

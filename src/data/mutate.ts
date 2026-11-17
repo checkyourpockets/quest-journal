@@ -2,7 +2,9 @@ import { addMonths, kstToday, newId } from "../lib/dates";
 import { blankSrs, schedule, type Grade } from "../lib/srs";
 import type { DocMap, EventDraft } from "./types";
 
-export type Mutation = { docs: DocMap; event: EventDraft; keys?: string[] };
+export type Mutation = { docs: DocMap; event: EventDraft; keys?: string[]; forgetRuneId?: string };
+
+export type RuneDeletion = Mutation & { removed: Record<string, unknown> | null; index: number };
 
 export type SettingsInput = {
   shift?: { start: string; end: string; days: number[] };
@@ -165,6 +167,64 @@ export function addRune(docs: DocMap, input: { w: string; h: string; m: string; 
   };
   list(collectionsOf(next), "runes").push(row);
   return { docs: next, event: event("rune_add", { id, w: input.w, hanja: input.h, meaning: input.m, example: input.c }) };
+}
+
+const REVIEW_KEYS = ["reviews", "runeReviews", "reviewQueue", "pendingReviews"];
+
+function refersToRune(row: unknown, runeId: string): boolean {
+  if (typeof row === "string") return row === runeId;
+  if (!row || typeof row !== "object") return false;
+  const rec = row as Record<string, unknown>;
+  if (typeof rec.runeId === "string" || typeof rec.rune === "string") return rec.runeId === runeId || rec.rune === runeId;
+  return rec.id === runeId;
+}
+
+/** Drop review rows that still point at a rune, so a later pass cannot bring the card back. */
+function dropPendingReviews(col: Record<string, unknown>, runeId: string) {
+  for (const key of REVIEW_KEYS) {
+    const value = col[key];
+    if (Array.isArray(value)) {
+      col[key] = value.filter((row) => !refersToRune(row, runeId));
+    } else if (value && typeof value === "object") {
+      if (refersToRune(value, runeId)) {
+        col[key] = {};
+        continue;
+      }
+      const rec = { ...(value as Record<string, unknown>) };
+      if (runeId in rec) {
+        delete rec[runeId];
+        col[key] = rec;
+      }
+    }
+  }
+}
+
+export function deleteRune(docs: DocMap, runeId: string): RuneDeletion {
+  const next = cloneDocs(docs);
+  const col = collectionsOf(next);
+  const runes = list(col, "runes");
+  const index = runes.findIndex((row) => row.id === runeId);
+  const removed = index >= 0 ? runes[index] : null;
+  if (index >= 0) runes.splice(index, 1);
+  dropPendingReviews(col, runeId);
+  return {
+    docs: next,
+    removed,
+    index,
+    forgetRuneId: runeId,
+    event: event("rune_delete", removed ? { id: runeId, w: removed.w ?? null } : { id: runeId, missing: true }),
+  };
+}
+
+export function restoreRune(docs: DocMap, row: Record<string, unknown>, index = Number.POSITIVE_INFINITY): Mutation {
+  const next = cloneDocs(docs);
+  const runes = list(collectionsOf(next), "runes");
+  const id = typeof row.id === "string" ? row.id : "";
+  if (id && !runes.some((existing) => existing.id === id)) {
+    const at = Number.isFinite(index) ? Math.max(0, Math.min(runes.length, index)) : runes.length;
+    runes.splice(at, 0, structuredClone(row));
+  }
+  return { docs: next, event: event("rune_restore", { id, w: row.w ?? null }) };
 }
 
 export function addReading(

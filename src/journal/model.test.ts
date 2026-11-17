@@ -74,6 +74,10 @@ describe("journal view", () => {
     expect(view.quests[1].rot).toBe("2026-04");
     expect(view.recipes).toHaveLength(1);
     expect(view.runes[0].due).toBe("2026-03-01");
+    const stamped = sample();
+    (stamped.collections as { runes: { srs: { due: string } }[] }).runes[0].srs.due = "2026-03-01T15:00:00.000Z";
+    expect(buildView(stamped, "2026-03-01").runes[0].due).toBe("2026-03-01");
+    expect(buildView(stamped, "2026-02-28").runes[0].due).toBe("2026-03-01");
     expect(view.entries[0].t).toBe("Hello.");
     expect(view.web?.nodes).toHaveLength(2);
     expect(view.char.branches[0].av).toBe(1);

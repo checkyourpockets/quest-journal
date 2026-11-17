@@ -1,6 +1,6 @@
 import { rotationMonth } from "../data/mutate";
 import type { DocMap } from "../data/types";
-import { kstToday } from "../lib/dates";
+import { dueDay, kstToday } from "../lib/dates";
 
 export type QuestView = {
   id: string;
@@ -502,7 +502,7 @@ export function buildView(docs: DocMap, today = kstToday()): JournalView {
   const runes = arr(col.runes).map((row) => {
     const x = obj(row);
     const srs = obj(x.srs);
-    return { id: str(x.id, str(x.w)), w: str(x.w), h: str(x.hanja), m: str(x.meaning), due: str(srs.due) || null, known: x.known === true };
+    return { id: str(x.id, str(x.w)), w: str(x.w), h: str(x.hanja), m: str(x.meaning), due: dueDay(str(srs.due)), known: x.known === true };
   });
   const reads = arr(col.readings).map((row) => {
     const x = obj(row);
