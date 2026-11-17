@@ -6,7 +6,7 @@ import { checkAnswer, type AnswerVerdict } from "../lib/answer";
 import { dayLabel, daysTo, isoWeekday, kstStamp, longDate, mLong, pLong, pShort, usd, wd, won, wonK } from "../lib/dates";
 import { combinedSavings, usdFlow } from "../lib/savings";
 import { ALL_STATUSES, C, CH_PROMPTS, FIN_COL, GIVERS, INV_CATS, MORE_STATUSES, SERIES_THEMES, SLOTS, SLOT_OF, SLOT_SUB_OFF, SLOT_SUB_WORK, STATUS_TONE, TABS, WIN_WORK, giverName, recipeEmoji, shiftInfo, type TabName } from "./constants";
-import type { FinanceView, InvItem, JournalView, QuestView, RecipeView, SettingsView } from "./model";
+import type { FinanceView, InvItem, JournalView, QuestView, RecipeView, RuneView, SettingsView } from "./model";
 import { Bar, Checks, Panel, PeriodBars, Radar, Ring, Sigil, TabTitle, Tag, branchLine } from "./bits";
 import { SkillWeb } from "./SkillWeb";
 
@@ -21,6 +21,8 @@ export type JournalActions = {
   toggleQuestStep: (questId: string, index: number) => void;
   adjustItem: (id: string, qty: number | null, flag: string | null) => void;
   gradeRune: (id: string, grade: Grade) => void;
+  deleteRune: (id: string) => { row: Record<string, unknown>; index: number } | null;
+  restoreRune: (row: Record<string, unknown>, index?: number) => void;
   addRune: (input: { w: string; h: string; m: string; c: string }) => void;
   addReading: (input: { title: string; ko: string; en: string; work: boolean }) => void;
   requestEpisode: () => void;
@@ -494,6 +496,54 @@ function Chronicle({ view, actions }: { view: JournalView; actions: JournalActio
   );
 }
 
+type RuneAsk = { id: string; source: "filter" | "browse" | "card" };
+
+function RuneTable({ rows, source, ask, onAsk, onCancel, onBanish }: {
+  rows: RuneView[];
+  source: "filter" | "browse";
+  ask: RuneAsk | null;
+  onAsk: (id: string, source: "filter" | "browse") => void;
+  onCancel: () => void;
+  onBanish: (id: string) => void;
+}) {
+  return (
+    <div className="scroll">
+      <table lang="ko">
+        <thead><tr><th>Word</th><th>Hanja</th><th>Meaning</th><th className="r">Due</th></tr></thead>
+        <tbody>
+          {rows.map((r) => {
+            const open = ask?.id === r.id && ask.source === source;
+            return (
+              <Fragment key={r.id}>
+                <tr>
+                  <td className="kw" style={{ fontWeight: 700, fontSize: 17 }}>
+                    <div>{r.w}</div>
+                    {open ? null : <button type="button" className="rune-x" aria-label={"Banish " + r.w} onClick={() => onAsk(r.id, source)}>banish</button>}
+                  </td>
+                  <td className="hanja kw">{r.h}</td>
+                  <td>{r.m}</td>
+                  <td className="r sub nw">{r.known ? "known" : r.due ? pShort(r.due) : "new"}</td>
+                </tr>
+                {open ? (
+                  <tr className="banish-row">
+                    <td colSpan={4}>
+                      <div className="banish-ask" role="group" aria-label={"Confirm banish " + r.w}>
+                        <span className="banish-q">Banish this rune?</span>
+                        <button type="button" className="btn sm" onClick={() => onBanish(r.id)}>Banish</button>
+                        <button type="button" className="btn sm" onClick={onCancel}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Runes({ view, actions }: { view: JournalView; actions: JournalActions }) {
   const due = view.runes.filter((r) => !r.known && r.due && r.due <= view.today).slice().sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const [rf, setRf] = useState("due");
@@ -506,6 +556,9 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
   const [typed, setTyped] = useState("");
   const [verdict, setVerdict] = useState<AnswerVerdict | null>(null);
   const [deck, setDeck] = useState<null | "due" | "known" | "hanja" | "all">(null);
+  const [ask, setAsk] = useState<RuneAsk | null>(null);
+  const [undo, setUndo] = useState<null | { row: Record<string, unknown>; index: number; source: RuneAsk["source"] }>(null);
+  const [shown, setShown] = useState("");
   const [rw, setRw] = useState("");
   const [rh, setRh] = useState("");
   const [rm, setRm] = useState("");
@@ -518,26 +571,63 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
   const [srCustom, setSrCustom] = useState("");
   const [srFmt, setSrFmt] = useState<"story" | "articles">("story");
   const [srLen, setSrLen] = useState(8);
+  useEffect(() => {
+    if (!undo) return;
+    document.querySelector(".toast")?.scrollIntoView({ block: "nearest" });
+    const timer = window.setTimeout(() => setUndo(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [undo]);
   const byId = new Map(view.runes.map((r) => [r.id, r]));
-  const rv = revOn && revQ.length ? byId.get(revQ[0]) : undefined;
+  const idSet = new Set(view.runes.map((r) => r.id));
+  const liveQ = revQ.filter((id) => idSet.has(id));
+  if (liveQ.length !== revQ.length) setRevQ(liveQ);
+  const headId = liveQ[0] || "";
+  if (shown !== headId) {
+    setShown(headId);
+    setTyped("");
+    setVerdict(null);
+    setRevShow(false);
+  }
+  if (ask && !idSet.has(ask.id)) setAsk(null);
+  const rv = revOn && liveQ.length ? byId.get(liveQ[0]) : undefined;
   const list = rf === "due" ? due : rf === "known" ? view.runes.filter((r) => r.known) : rf === "soon" ? view.runes.filter((r) => !r.known && (!r.due || r.due > view.today)) : view.runes;
   const begin = (ids: string[]) => {
-    setRevQ(ids);
+    setRevQ(ids.filter((id) => idSet.has(id)));
     setRevShow(false);
     setTyped("");
     setVerdict(null);
     setRevOn(true);
     setDeck(null);
+    setAsk(null);
   };
   const grade = (g: Grade) => {
-    const id = revQ[0];
+    const id = liveQ[0];
     if (!id) return;
     actions.gradeRune(id, g);
-    setRevQ(g === "again" ? revQ.slice(1).concat(id) : revQ.slice(1));
+    setRevQ(g === "again" ? liveQ.slice(1).concat(id) : liveQ.slice(1));
     setRevShow(false);
     setTyped("");
     setVerdict(null);
   };
+  const banish = (id: string) => {
+    const source = ask?.source ?? "card";
+    const removed = actions.deleteRune(id);
+    setAsk(null);
+    if (removed) setUndo({ ...removed, source });
+  };
+  const undoBanish = () => {
+    if (!undo) return;
+    actions.restoreRune(undo.row, undo.index);
+    setUndo(null);
+  };
+  const undoBar = undo ? (
+    <div className="toast" role="status">
+      <span><b lang="ko">{String(undo.row.w || "Rune")}</b> banished</span>
+      <button type="button" className="btn sm" onClick={undoBanish}>Undo</button>
+    </div>
+  ) : null;
+  const undoInFilter = undo?.source === "filter" && !!deck;
+  const undoOnCard = undo?.source === "card" && revOn;
   const chooseMode = (mode: "flip" | "type") => {
     setReviewMode(mode);
     try { localStorage.setItem("qj.review.mode.v1", mode); } catch { /* private mode */ }
@@ -553,6 +643,7 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
   return (
     <Fragment>
       <TabTitle title="Runes" sub="Korean words saved from your readings, with review dates." />
+      {undo && !undoInFilter && !undoOnCard ? undoBar : null}
       <div className="chips" style={{ marginBottom: 16 }}>
         <button type="button" className="kpi" onClick={() => setDeck("all")} aria-pressed={deck === "all"}><span className="lbl">Runes</span><b>{view.runes.length}</b><small>from {view.reads.length} readings</small></button>
         <button type="button" className="kpi" onClick={() => setDeck("due")} aria-pressed={deck === "due"}><span className="lbl">Due for review</span><b style={{ color: due.length ? C.amberTx : C.good }}>{due.length}</b><small>due on or before today</small></button>
@@ -561,18 +652,17 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
       </div>
       {deck ? (
         <Panel id="rune-filter" title={deckTitle} sub={deckRunes.length + (deckRunes.length === 1 ? " rune" : " runes")}>
+          {undoInFilter ? undoBar : null}
           <div className="chips" style={{ marginBottom: 10 }}>
             <button type="button" className="btn sm" onClick={() => setDeck(null)}>Back</button>
             <button type="button" className="btn primary sm" disabled={!deckRunes.length} onClick={() => begin(deckRunes.map((r) => r.id))}>Review these</button>
           </div>
           {deckRunes.length === 0 ? <div className="sub" style={{ textAlign: "center" }}>Nothing in this list.</div> : (
-            <div className="scroll"><table lang="ko"><thead><tr><th>Word</th><th>Hanja</th><th>Meaning</th><th className="r">Due</th></tr></thead>
-              <tbody>{deckRunes.map((r) => <tr key={r.id}><td className="kw" style={{ fontWeight: 700, fontSize: 17 }}>{r.w}</td><td className="hanja kw">{r.h}</td><td>{r.m}</td><td className="r sub nw">{r.known ? "known" : r.due ? pShort(r.due) : "new"}</td></tr>)}</tbody>
-            </table></div>
+            <RuneTable rows={deckRunes} source="filter" ask={ask} onAsk={(id, source) => setAsk({ id, source })} onCancel={() => setAsk(null)} onBanish={banish} />
           )}
         </Panel>
       ) : null}
-      <Panel tint title="Rune review" sub={reviewMode === "type" ? "Type the meaning. The check stays on this device, then you grade the card the same way as a flip." : due.length + " cards are due. Say each word's meaning in your head, flip it, then grade yourself honestly."}>
+      <Panel id="rune-review" tint title="Rune review" sub={reviewMode === "type" ? "Type the meaning. The check stays on this device, then you grade the card the same way as a flip." : due.length + " cards are due. Say each word's meaning in your head, flip it, then grade yourself honestly."}>
         {!revOn ? (
           <div style={{ display: "grid", gap: 12, justifyItems: "center" }}>
             <div className="seg" role="group" aria-label="Review style">
@@ -583,8 +673,20 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
           </div>
         ) : rv ? (
           <div style={{ display: "grid", gap: 10, justifyItems: "center" }}>
-            <div className="sub num">{revQ.length} left in this sitting</div>
+            {undoOnCard ? undoBar : null}
+            <div className="sub num">{liveQ.length} left in this sitting</div>
             <div className="rvword" lang="ko">{rv.w}</div>
+            <div className="rvtools">
+              {ask?.id === rv.id && ask.source === "card" ? (
+                <div className="banish-ask" role="group" aria-label={"Confirm banish " + rv.w}>
+                  <span className="banish-q">Banish this rune?</span>
+                  <button type="button" className="btn sm" onClick={() => banish(rv.id)}>Banish</button>
+                  <button type="button" className="btn sm" onClick={() => setAsk(null)}>Cancel</button>
+                </div>
+              ) : (
+                <button type="button" className="rune-x" aria-label={"Banish " + rv.w} onClick={() => setAsk({ id: rv.id, source: "card" })}>banish</button>
+              )}
+            </div>
             {reviewMode === "type" && !verdict ? (
               <form style={{ display: "grid", gap: 8, width: "min(420px, 100%)" }} onSubmit={(e) => { e.preventDefault(); if (typed.trim()) setVerdict(checkAnswer(rv.m, typed)); }}>
                 <input type="text" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Meaning in English" aria-label="Typed meaning" autoComplete="off" />
@@ -621,9 +723,7 @@ function Runes({ view, actions }: { view: JournalView; actions: JournalActions }
           <div className="chips" style={{ margin: "10px 0" }}>
             <div className="seg">{[["due", "Due now"], ["soon", "Not yet due"], ["known", "Known"], ["all", "All"]].map((x) => <button key={x[0]} type="button" className={rf === x[0] ? "on" : ""} onClick={() => setRf(x[0])}>{x[1]}</button>)}</div>
           </div>
-          <div className="scroll"><table lang="ko"><thead><tr><th>Word</th><th>Hanja</th><th>Meaning</th><th className="r">Due</th></tr></thead>
-            <tbody>{list.map((r) => <tr key={r.id}><td className="kw" style={{ fontWeight: 700, fontSize: 17 }}>{r.w}</td><td className="hanja kw">{r.h}</td><td>{r.m}</td><td className="r sub nw">{r.known ? "known" : r.due ? pShort(r.due) : "new"}</td></tr>)}</tbody>
-          </table></div>
+          <RuneTable rows={list} source="browse" ask={ask} onAsk={(id, source) => setAsk({ id, source })} onCancel={() => setAsk(null)} onBanish={banish} />
         </details>
       </Panel>
       <div className="grid2">

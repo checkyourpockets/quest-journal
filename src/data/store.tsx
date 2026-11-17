@@ -10,21 +10,19 @@ import {
   addReading,
   addRune,
   adjustItem,
+  deleteRune as deleteRuneDoc,
   gradeRune,
   requestEpisode,
   requestSeries,
+  restoreRune as restoreRuneDoc,
   saveSettings,
   setQuestStatus,
   toggleHabitToday,
   toggleQuestStep,
   type Mutation,
 } from "./mutate";
-import { emptyQueue, isNetworkError, loadCache, loadQueue, messageOf, saveCache, saveQueue } from "./offline";
+import { emptyQueue, enqueueMutation, isNetworkError, loadCache, loadQueue, mergeRemote, messageOf, saveCache, saveQueue } from "./offline";
 import type { DocMap, OfflineQueue, SavePhase } from "./types";
-
-function overlay(docs: DocMap, queue: OfflineQueue): DocMap {
-  return { ...docs, ...queue.docs };
-}
 
 export function useJournal() {
   const [session, setSession] = useState<Session | null>(null);
@@ -44,6 +42,11 @@ export function useJournal() {
   const emailRef = useRef("");
   const timer = useRef<number | undefined>(undefined);
   const flushRef = useRef<() => Promise<void>>(async () => {});
+  const sessionGen = useRef(0);
+  const commitGen = useRef(0);
+  const wantedGen = useRef(0);
+  const pullPending = useRef(false);
+  const pulling = useRef(false);
 
   const email = session?.user.email || "";
   emailRef.current = modeRef.current === "fixture" ? "fixture" : email;
@@ -138,15 +141,12 @@ export function useJournal() {
   }, []);
 
   const commit = useCallback((result: Mutation) => {
+    commitGen.current += 1;
     const owner = modeRef.current === "fixture" ? "fixture" : emailRef.current;
     docsRef.current = result.docs;
-    const queue = queueRef.current;
+    const queue = enqueueMutation(queueRef.current, result);
     queue.email = owner || "fixture";
-    queue.events.push(result.event);
-    const keys = result.keys?.length ? result.keys : ["collections"];
-    const patch: DocMap = {};
-    for (const key of keys) patch[key] = result.docs[key];
-    queue.docs = { ...queue.docs, ...patch };
+    queueRef.current = queue;
     saveQueue(queue);
     if (owner) saveCache(owner, result.docs);
     setDocs(result.docs);
@@ -154,56 +154,102 @@ export function useJournal() {
     schedule();
   }, [schedule]);
 
+  const pull = useCallback(async (gen: number) => {
+    wantedGen.current = gen;
+    if (modeRef.current !== "remote" || !emailRef.current) return;
+    if (pulling.current) {
+      pullPending.current = true;
+      return;
+    }
+    pulling.current = true;
+    try {
+      while (wantedGen.current === sessionGen.current) {
+        const genNow = wantedGen.current;
+        const owner = emailRef.current;
+        if (!owner) return;
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          if (Object.keys(docsRef.current).length > 0) {
+            setPhase("queued");
+            setDetail("Showing the last copy saved on this device");
+          }
+          return;
+        }
+        const seen = commitGen.current;
+        const { data, error } = await supabase.from("qj_docs").select("id,key,data,updated_at");
+        if (error) throw error;
+        if (wantedGen.current !== genNow || sessionGen.current !== genNow || commitGen.current !== seen) continue;
+        const map: DocMap = {};
+        const ids: Record<string, string> = {};
+        const times: Record<string, string> = {};
+        for (const row of data || []) {
+          const rec = row as { id: string; key: string; data: unknown; updated_at?: string | null };
+          map[rec.key] = rec.data;
+          ids[rec.key] = rec.id;
+          if (typeof rec.updated_at === "string" && rec.updated_at) times[rec.key] = rec.updated_at;
+        }
+        const reconciled = mergeRemote(map, times, queueRef.current);
+        if (wantedGen.current !== genNow || sessionGen.current !== genNow || commitGen.current !== seen) continue;
+        if (reconciled.queue !== queueRef.current) {
+          queueRef.current = reconciled.queue;
+          saveQueue(reconciled.queue);
+        }
+        idsRef.current = ids;
+        docsRef.current = reconciled.docs;
+        setDocs(reconciled.docs);
+        saveCache(owner, reconciled.docs);
+        setLoadError("");
+        if (reconciled.queue.events.length || Object.keys(reconciled.queue.docs).length > 0) void flushRef.current();
+        if (wantedGen.current === genNow) break;
+      }
+    } catch (error) {
+      if (wantedGen.current !== sessionGen.current) return;
+      if (Object.keys(docsRef.current).length === 0) setLoadError(messageOf(error));
+      else if (isNetworkError(error)) {
+        setPhase("queued");
+        setDetail("Showing the last copy saved on this device");
+      }
+    } finally {
+      pulling.current = false;
+      if (pullPending.current && wantedGen.current === sessionGen.current) {
+        pullPending.current = false;
+        void pull(wantedGen.current);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).has("fixture")) return;
     if (!email) return;
+    const gen = sessionGen.current + 1;
+    sessionGen.current = gen;
     modeRef.current = "remote";
     setMode("remote");
-    let cancel = false;
     const owner = email;
-    (async () => {
-      const cached = loadCache(owner);
-      queueRef.current = loadQueue(owner);
-      if (cached && !cancel) {
-        const merged = overlay(cached, queueRef.current);
-        docsRef.current = merged;
-        setDocs(merged);
-      }
-      try {
-        const { data, error } = await supabase.from("qj_docs").select("id,key,data");
-        if (error) throw error;
-        if (cancel) return;
-        const map: DocMap = {};
-        const ids: Record<string, string> = {};
-        for (const row of data || []) {
-          const rec = row as { id: string; key: string; data: unknown };
-          map[rec.key] = rec.data;
-          ids[rec.key] = rec.id;
-        }
-        idsRef.current = ids;
-        const merged = overlay(map, queueRef.current);
-        docsRef.current = merged;
-        setDocs(merged);
-        saveCache(owner, merged);
-        setLoadError("");
-        if (queueRef.current.events.length || Object.keys(queueRef.current.docs).length > 0) void flushRef.current();
-      } catch (error) {
-        if (cancel) return;
-        if (!cached) setLoadError(messageOf(error));
-        else if (typeof navigator !== "undefined" && navigator.onLine === false) {
-          setPhase("queued");
-          setDetail("Showing the last copy saved on this device");
-        }
-      }
-    })();
-    return () => { cancel = true; };
-  }, [email]);
+    const cached = loadCache(owner);
+    queueRef.current = loadQueue(owner);
+    if (cached) {
+      const merged = { ...cached, ...queueRef.current.docs };
+      docsRef.current = merged;
+      setDocs(merged);
+    }
+    void pull(gen);
+    return () => { sessionGen.current += 1; };
+  }, [email, pull]);
 
   useEffect(() => {
-    const onOnline = () => void flushRef.current();
-    window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, []);
+    const refresh = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void pull(sessionGen.current);
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [pull]);
 
   const enterFixture = useCallback(async () => {
     if (!import.meta.env.DEV) return;
@@ -270,6 +316,12 @@ export function useJournal() {
     toggleQuestStep: (questId, index) => commit(toggleQuestStep(docsRef.current, questId, index)),
     adjustItem: (id, qty, flag) => commit(adjustItem(docsRef.current, id, qty, flag)),
     gradeRune: (id, grade: Grade) => commit(gradeRune(docsRef.current, id, grade)),
+    deleteRune: (id) => {
+      const result = deleteRuneDoc(docsRef.current, id);
+      commit(result);
+      return result.removed ? { row: result.removed, index: result.index } : null;
+    },
+    restoreRune: (row, index) => commit(restoreRuneDoc(docsRef.current, row, index)),
     addRune: (input) => commit(addRune(docsRef.current, input)),
     addReading: (input) => commit(addReading(docsRef.current, input)),
     requestEpisode: () => commit(requestEpisode(docsRef.current)),

@@ -42,9 +42,11 @@ GitHub Pages has to use **GitHub Actions** as its source. In the repository: **S
 
 Signed-in reads and writes go to `qj_docs` and `qj_events` on the Supabase project named in `src/config.ts`. The URL and publishable key are public. Row level security only returns rows whose `owner_email` matches the signed-in email.
 
-Edits update the `collections` document (optimistic, then a short debounce) and append an event: `chronicle`, `habit_check`, `quest_update`, `backpack`, `rune_add`, `rune_review`, `reading_add`, or `story_request`. The footer notes that Chamwei reads the log and updates omens, episodes, and XP each morning.
+Edits update the `collections` document (optimistic, then a short debounce) and append an event: `chronicle`, `habit_check`, `quest_update`, `backpack`, `rune_add`, `rune_delete`, `rune_restore`, `rune_review`, `reading_add`, or `story_request`. The footer notes that Chamwei reads the log and updates omens, episodes, and XP each morning.
 
-The last loaded documents are cached in `localStorage`. If a save happens while offline, it stays in a queue on the device and flushes when the browser reconnects. A service worker caches the app shell so the journal can open without a network.
+Deleting a rune removes it from `collections`, drops any not-yet-synced add, review, or restore for that card, and appends `rune_delete`. Undo appends `rune_restore` and puts the same card back.
+
+The last loaded documents are cached in `localStorage` so the journal can open offline. A signed-in tab refetches `qj_docs` when the window gains focus or the page becomes visible, then keeps an unsent edit only when that edit is newer than the server row. An older queued snapshot is dropped, so it cannot hide or overwrite a deck another device already saved. A service worker caches the app shell so the journal can open without a network.
 
 Rune reviews write the next due date back onto the rune in the `collections` document.
 
